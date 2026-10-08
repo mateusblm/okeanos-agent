@@ -96,6 +96,20 @@ Definidos em [`hooks/hooks.json`](hooks/hooks.json) e implementados em [`hooks/o
 
 Cada bloqueio, pedido de aprovação e falha é registrado em `.git/okeanos/metrics.jsonl`.
 
+### Aprovações
+
+Onde o agente não consegue pedir confirmação, o Okeanos bloqueia a ação e termina a mensagem com `Para aprovar: okeanos aprovar <alvo>`. Rode esse comando no seu terminal (`bin/okeanos` deste repo):
+
+```bash
+okeanos aprovar tests/test_calc.py   # um teste commitado
+okeanos aprovar push                 # git push, gh pr create/merge, merge na branch padrão
+okeanos aprovar pacote:expresss      # um pacote suspeito, mas existente
+okeanos aprovacoes                   # lista as ativas
+okeanos revogar [alvo]               # remove uma ou todas
+```
+
+A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. `aprovar` e `revogar` exigem um terminal interativo, e os hooks bloqueiam o agente que tenta rodá-los ou escrever em `.git/okeanos/`. Segredos, force push, `--no-verify`, `rm -r` fora do repo e pacote inexistente nunca são aprováveis. `okeanos doctor` mostra onde o Okeanos está, o que o repositório tem e quais agentes estão no PATH; `okeanos githooks` chega num ticket futuro.
+
 ## Configuração
 
 Os comandos de cada projeto ficam em `docs/agents/checks.json`. O `onboard` cria o arquivo a partir do que o projeto já usa e mostra para você aprovar.
@@ -181,7 +195,7 @@ Em repositórios com remote no GitHub, o `setup-okeanos` oferece um workflow (`.
 A skill [`retro`](skills/engineering/retro/SKILL.md) usa `.git/okeanos/metrics.jsonl` e termina em 1 a 3 mudanças concretas no processo. O agente oferece a retro depois de eventos como um G2 recusado ou uma definição de pronto escalada para você. Para ver o resumo de um repo:
 
 ```bash
-cd <projeto> && <caminho-do-okeanos-agent>/hooks/run metrics 30   # últimos 30 dias
+cd <projeto> && <caminho-do-okeanos-agent>/bin/okeanos metrics 30   # últimos 30 dias, com divisão por agente
 ```
 
 Cada etapa do processo é uma suposição sobre o que o modelo ainda não faz bem sozinho. [`docs/manutencao.md`](docs/manutencao.md) descreve como medir as etapas e removê-las uma a uma conforme os modelos melhoram.

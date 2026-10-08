@@ -75,7 +75,7 @@ Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explí
   - **Docs:** o que o `as-built` marcou como possível doc desatualizado.
   - **Força dos testes (Feature grande, Épico, lógica crítica):** resultado do `mutation-check` e, com lógica de domínio, do `property-tests`.
 
-  O hook do Okeanos pede a confirmação do usuário em todo `git push`, `gh pr create/merge` e merge na branch padrão: essa confirmação é o G2, e você não tenta contorná-la. Para o corpo do PR use a skill `pr`.
+  O hook do Okeanos pede a confirmação do usuário em todo `git push`, `gh pr create/merge` e merge na branch padrão: essa confirmação é o G2, e você não tenta contorná-la. Nos agentes em que o hook não consegue perguntar, a ação é bloqueada e o usuário aprova rodando `okeanos aprovar push` no próprio terminal; você nunca roda esse comando. Para o corpo do PR use a skill `pr`.
 
 Entre os gates, siga sem pedir permissão para passos de rotina: rodar testes, commits locais na branch de trabalho, chamar a próxima skill do fluxo. As skills que entrevistam o usuário (`grilling`, `to-tickets`) continuam fazendo suas perguntas; isso é parte do fluxo, não um gate.
 
@@ -84,6 +84,8 @@ Antes de implementar, se estiver na branch padrão, crie uma branch de trabalho.
 ## 4. O que os hooks garantem
 
 Estas regras não dependem de você lembrar: os hooks do Okeanos as aplicam. Trabalhe com elas, nunca contra.
+
+Onde a regra pede aprovação e o hook do agente não consegue perguntar, a ação é bloqueada e o usuário aprova rodando `okeanos aprovar <alvo>` no próprio terminal (vale 10 minutos, só para aquele alvo); você nunca roda esse comando nem mexe em `.git/okeanos/`.
 
 - **Definição de pronto.** Quando o código mudou na sessão, você só encerra o turno com os comandos `onDone` de `docs/agents/checks.json` passando (typecheck, testes, build). Se o hook bloquear, corrija. Se a correção depende de uma decisão do usuário (mudar um teste commitado, uma regra de produto), não insista: explique a decisão e termine a resposta com a linha `**Okeanos** · precisa de você`, que libera o encerramento e mostra a falha ao usuário. Sem essa linha, depois de 3 tentativas o hook passa o problema para o usuário do mesmo jeito.
 - **Testes commitados são o contrato.** Editar ou apagar linhas de um teste já commitado pede aprovação do usuário; adicionar testes é livre. Nunca afrouxe um teste para passar. Mudanças em testes existentes aparecem para o usuário no fim do turno.
