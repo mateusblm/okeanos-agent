@@ -2,6 +2,32 @@
 
 Na mitologia grega, Okeanos é o rio sem fim que circunda o mundo. Aqui é um plugin do Claude Code que conduz cada demanda de desenvolvimento por um fluxo contínuo: do alinhamento à entrega, com dois gates de aprovação. Você não chama skills: o Okeanos classifica a demanda, escolhe a rota e chama as skills sozinho.
 
+## Instalação
+
+Requer o [Claude Code](https://code.claude.com). No terminal:
+
+```bash
+claude plugin marketplace add mateusblm/okeanos-agent
+claude plugin install okeanos@okeanos
+```
+
+Pronto: abra uma sessão nova do Claude Code em qualquer projeto. Não é preciso chamar nada; o Okeanos já roda em toda interação. Sessões abertas antes da instalação precisam ser reiniciadas.
+
+| Para | Comando |
+| :- | :- |
+| Atualizar | `claude plugin marketplace update okeanos && claude plugin update okeanos@okeanos` |
+| Desligar | `claude plugin disable okeanos@okeanos` |
+| Religar | `claude plugin enable okeanos@okeanos` |
+| Remover | `claude plugin uninstall okeanos@okeanos` |
+| Pular o processo numa demanda | escreva "sem okeanos" ou "modo livre" na mensagem |
+
+Para desenvolver o próprio Okeanos, instale a partir do clone local; edições valem na próxima sessão:
+
+```bash
+claude plugin marketplace add /caminho/para/okeanos-agent
+claude plugin install okeanos@okeanos
+```
+
 ## Como funciona
 
 O núcleo é o output style [`output-styles/okeanos.md`](output-styles/okeanos.md), marcado com `force-for-plugin: true`. Ele fica ativo em toda sessão, em qualquer projeto, sempre que o plugin estiver habilitado. Também usa `keep-coding-instructions: true`, então as instruções de engenharia padrão do Claude Code continuam valendo por baixo.
@@ -56,15 +82,6 @@ Todas vivem em [`skills/`](skills/) e são do Okeanos: edite direto.
 
 - **Fluxo** (o Okeanos chama sozinho): `onboard`, `setup-okeanos`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `as-built`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
 - **Manuais** (só você chama): `ask-okeanos` (mapa das rotas), `teach`, `wait-what`, `to-questionnaire`, `improve-codebase-architecture`.
-
-## Instalação
-
-```bash
-claude plugin marketplace add /home/mateus/orca/projects/okeanos-agent
-claude plugin install okeanos@okeanos
-```
-
-O plugin é lido direto deste diretório, então edições aqui valem na próxima sessão. Para desligar: `claude plugin disable okeanos@okeanos`.
 
 ## Licença
 
