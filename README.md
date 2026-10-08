@@ -62,7 +62,7 @@ Antes do G2, a skill [`as-built`](skills/engineering/as-built/SKILL.md) atualiza
 
 ## Como funciona
 
-O processo vive em [`output-styles/okeanos.md`](output-styles/okeanos.md). Ele soma às instruções padrão do Claude Code (`keep-coding-instructions: true`).
+O processo vive em [`core/process.md`](core/process.md), neutro em relação ao agente. `scripts/build.py` gera dele o output style do Claude Code, [`output-styles/okeanos.md`](output-styles/okeanos.md), que soma às instruções padrão do Claude Code (`keep-coding-instructions: true`).
 
 | Rota | Quando | Fluxo |
 | :- | :- | :- |
