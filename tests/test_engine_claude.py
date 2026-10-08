@@ -637,6 +637,7 @@ def test_agent_running_okeanos_aprovar_outside_a_repo_is_denied(tmp_path):
     "okeanos metrics 30",
     "okeanos doctor",
     "git commit -m 'docs: explain okeanos aprovar'",
+    "git commit -m 'docs: o estado fica em .git/okeanos/approvals.json'",
 ])
 def test_reading_commands_are_allowed(repo, command):
     assert bash(repo, command) == (0, None)

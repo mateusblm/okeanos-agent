@@ -11,6 +11,7 @@ import re
 import shlex
 import time
 
+from . import approvals
 from .model import (ALLOW, ASK, BLOCK, DENY, EDIT, MULTI_EDIT, POST_TOOL, PRE_TOOL, PROMPT,
                     SESSION_START, SHELL, STOP, WRITE, Decision)
 from .packages import check_package, package_requests
@@ -76,7 +77,7 @@ def is_doc(rel):
 def decide(event, ctx):
     """The one function dialects call (through the cli). Never raises on purpose,
     but the caller still treats any exception as allow."""
-    if not ctx.root and not (event.kind == PRE_TOOL and event.tool == SHELL):
+    if not ctx.root and event.kind != PRE_TOOL:
         return Decision()
     if event.kind == SESSION_START:
         return session_start(event, ctx)
@@ -255,11 +256,13 @@ def bash_write_targets(segment, toks):
         targets += [a for a in args if not a.startswith("-")][1:]
     elif tool == "awk" and "inplace" in args:
         targets += [a for a in args if not a.startswith("-") and a != "inplace"][1:]
-    elif tool in ("tee", "truncate", "rm"):
+    elif tool in ("tee", "truncate", "rm", "touch", "shred", "unlink"):
         targets += [a for a in args if not a.startswith("-")]
-    elif tool in ("mv", "cp") and args:
+    elif tool in ("mv", "cp", "ln", "install", "rsync") and args:
         plain = [a for a in args if not a.startswith("-")]
         targets += plain if tool == "mv" else plain[-1:]
+    elif tool == "dd":
+        targets += [a[3:] for a in args if a.startswith("of=")]
     elif tool == "git" and args[:1] == ["rm"]:
         targets += [a for a in args[1:] if not a.startswith("-")]
     return targets
@@ -278,10 +281,104 @@ def committed_tests_touched(root, cwd, targets):
     return sorted(set(hit))
 
 
+# ---------------------------------------------------------------------------
+# approvals belong to the human: the agent never grants them to itself
+# ---------------------------------------------------------------------------
+
+HUMAN_ONLY = ("Okeanos: aprovações são do humano. Só o usuário roda `okeanos aprovar`/`revogar`, no terminal dele, "
+              "e ninguém além da CLI escreve no estado do Okeanos ({what}). Peça ao usuário e espere.")
+APPROVAL_SUBCOMMANDS = ("aprovar", "revogar")
+# Tools that run a command line given as an argument or on stdin (including pseudo-terminal wrappers).
+COMMAND_RUNNERS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "eval", "xargs", "script", "unbuffer",
+                   "expect", "socat", "su", "runuser", "setsid", "nohup", "env", "timeout", "watch"}
+STATE_READERS = {"cat", "less", "more", "head", "tail", "ls", "jq", "grep", "rg", "wc", "stat", "file", "diff",
+                 "git", "echo", "printf"}  # their writes go through redirects, which are checked above
+STATE_MENTION = re.compile(r"(^|[^A-Za-z0-9_])\.git/okeanos(/|\b)|okeanos/approvals\.json")
+APPROVAL_TEXT = re.compile(r"okeanos[^\s;&|]*['\"]?\s+(\S+\s+)*?['\"]?(aprovar|revogar)\b")
+
+
+def okeanos_program(tok):
+    """True if a token names the okeanos CLI (any path, inside x=$(...) or backticks)."""
+    name = os.path.basename(re.split(r"[=(`'\"]", tok)[-1])
+    return bool(re.fullmatch(r"okeanos(\.py)?", name)) or name.startswith("okeanos_engine")
+
+
+def runs_approval(toks, depth=0):
+    for i, tok in enumerate(toks):
+        if okeanos_program(tok) and any(t.strip(")`'\"") in APPROVAL_SUBCOMMANDS for t in toks[i + 1:]):
+            return True
+    plain = strip_env_prefix(toks)
+    if depth < 3 and plain and os.path.basename(plain[0]) in COMMAND_RUNNERS:
+        for tok in plain[1:]:
+            if any(ch.isspace() for ch in tok):
+                if any(runs_approval(tokens(seg), depth + 1) for seg in split_segments(tok)):
+                    return True
+    return False
+
+
+def under(path, directory):
+    return path == directory or path.startswith(directory + os.sep)
+
+
+def touches_okeanos_state(path, state_dir):
+    path = os.path.normpath(path)
+    return (state_dir and under(path, state_dir)) or bool(re.search(r"(^|/)\.git/okeanos(/|$)", path))
+
+
+def self_approval(event, ctx):
+    """A deny reason if the shell command approves, revokes or writes Okeanos state; else None."""
+    command = event.command
+    state_dir = approvals.state_dir(ctx.root) if ctx.root else None
+    cwd = event.cwd or ctx.root or os.getcwd()
+    segments = split_segments(command)
+    for seg in segments:
+        toks = tokens(seg)
+        if runs_approval(toks):
+            return HUMAN_ONLY.format(what="aprovação pelo agente")
+        plain = strip_env_prefix(toks)
+        for target in bash_write_targets(seg, plain):
+            full = os.path.expanduser(target)
+            if touches_okeanos_state(full if os.path.isabs(full) else os.path.join(cwd, full), state_dir):
+                return HUMAN_ONLY.format(what=target)
+        mentions = STATE_MENTION.search(seg) or (state_dir and state_dir in seg)
+        if mentions and plain and os.path.basename(plain[0]) not in STATE_READERS:
+            return HUMAN_ONLY.format(what="estado em .git/okeanos")
+    runners = [strip_env_prefix(tokens(seg)) for seg in segments]
+    if any(r and os.path.basename(r[0]) in COMMAND_RUNNERS for r in runners) and APPROVAL_TEXT.search(command):
+        return HUMAN_ONLY.format(what="aprovação pelo agente")
+    return None
+
+
+def resolve_asks(asks, ctx):
+    """asks: [(targets, reason)]. Approved targets drop out; returns the Decision."""
+    root = ctx.root
+    live = approvals.active(root) if root else {}
+    pending, approved = [], []
+    for targets, reason in asks:
+        if targets and all(t in live for t in targets):
+            approved += targets
+        else:
+            pending.append((targets, reason))
+    if not pending:
+        if approved:
+            ctx.log(f"{LABELS[ctx.event.tool]}:approved", " ".join(dict.fromkeys(approved)))
+        return Decision()
+    wanted = list(dict.fromkeys(t for targets, _ in pending for t in targets if t not in live))
+    text = "\n".join(reason for _, reason in pending)
+    return Decision(ASK, text + ("\n" + approvals.how_to(wanted) if wanted else ""))
+
+
+LABELS = {SHELL: "pre-bash", EDIT: "pre-edit", WRITE: "pre-edit", MULTI_EDIT: "pre-edit"}
+
+
 def pre_shell(event, ctx):
     root, command = ctx.root, event.command
     if not command:
         return Decision()
+    denied = self_approval(event, ctx)
+    if denied:
+        return Decision(DENY, denied)
+    live = approvals.active(root) if root else {}
     asks = []
     for seg in split_segments(command):
         toks = strip_env_prefix(tokens(seg))
@@ -290,13 +387,14 @@ def pre_shell(event, ctx):
             if result and result[0] == DENY:
                 return Decision(DENY, result[1])
             elif result:
-                asks.append(result[1])
+                asks.append(([approvals.PUSH], result[1]))
         if root:
             touched = committed_tests_touched(root, event.cwd, bash_write_targets(seg, toks))
+            pending = [t for t in touched if t not in live]
             if touched:
-                asks.append("Okeanos: este comando escreve, move ou apaga teste(s) já commitado(s): "
-                            + ", ".join(touched) + ". Testes commitados são o contrato: mudar exige a sua aprovação. "
-                            "Adicionar testes novos não pede; prefira a ferramenta Edit para mudanças pontuais.")
+                asks.append((touched, "Okeanos: este comando escreve, move ou apaga teste(s) já commitado(s): "
+                             + ", ".join(pending or touched) + ". Testes commitados são o contrato: mudar exige a sua aprovação. "
+                             "Adicionar testes novos não pede; prefira a ferramenta Edit para mudanças pontuais."))
         if root and toks[:2] == ["git", "commit"]:
             secrets = scan_secrets(root)
             if secrets:
@@ -307,10 +405,8 @@ def pre_shell(event, ctx):
             if result and result[0] == DENY:
                 return Decision(DENY, result[1])
             elif result:
-                asks.append(result[1])
-    if asks:
-        return Decision(ASK, "\n".join(asks))
-    return Decision()
+                asks.append(([approvals.PACKAGE_PREFIX + name], result[1]))
+    return resolve_asks(asks, ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +446,14 @@ def repo_file(root, path):
 
 def pre_edit(event, ctx):
     root = ctx.root
+    if event.file_path:
+        state_dir = approvals.state_dir(root) if root else None
+        base = event.cwd or root or os.getcwd()
+        full = os.path.expanduser(event.file_path)
+        if touches_okeanos_state(full if os.path.isabs(full) else os.path.join(base, full), state_dir):
+            return Decision(DENY, HUMAN_ONLY.format(what=event.file_path))
+    if not root:
+        return Decision()
     target = repo_file(root, event.file_path) if event.file_path else None
     if not target:
         return Decision()
@@ -371,9 +475,9 @@ def pre_edit(event, ctx):
                if SKIP_MARKERS.search(l) and l not in set(significant(old))]
     if removed or skipped:
         detail = "\n".join(f"- {l[:100]}" for l in (removed + skipped)[:5])
-        return Decision(ASK, f"Okeanos: `{rel}` é um teste já commitado, e esta edição altera, remove ou desliga "
-                             f"asserções ou casos de teste:\n{detail}\nTestes commitados são o contrato: mudar exige a sua aprovação. "
-                             "Adicionar testes e mexer em imports ou helpers não pede.")
+        return resolve_asks([([rel], f"Okeanos: `{rel}` é um teste já commitado, e esta edição altera, remove ou desliga "
+                                     f"asserções ou casos de teste:\n{detail}\nTestes commitados são o contrato: mudar exige a sua aprovação. "
+                                     "Adicionar testes e mexer em imports ou helpers não pede.")], ctx)
     return Decision()
 
 

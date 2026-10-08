@@ -50,15 +50,15 @@ def handle(dialect, hook, data):
             return "", 0
 
 
-def metrics_summary(days):
-    """Print event counts per kind for the current repo (used by retro and harness pruning)."""
+def metrics_summary(days, by_agent=False, now=None):
+    """Print event counts per kind (and per agent) for the current repo (used by retro and harness pruning)."""
     root = repo_root(os.getcwd())
     path = metrics_path(root) if root else None
     if not path or not os.path.exists(path):
         print("Sem métricas do Okeanos neste repositório ainda.")
         return
-    since = time.time() - days * 86400
-    counts, sessions = {}, set()
+    since = (time.time() if now is None else now) - days * 86400
+    counts, agents, sessions = {}, {}, set()
     with open(path) as f:
         for line in f:
             try:
@@ -68,10 +68,16 @@ def metrics_summary(days):
             if e.get("ts", 0) < since:
                 continue
             counts[e.get("kind", "?")] = counts.get(e.get("kind", "?"), 0) + 1
+            agent = e.get("agent") or "?"
+            agents[agent] = agents.get(agent, 0) + 1
             sessions.add(e.get("session"))
     print(f"Okeanos, últimos {days} dias, {len(sessions)} sessões ({path}):")
     for kind, n in sorted(counts.items(), key=lambda kv: -kv[1]):
         print(f"  {n:5d}  {kind}")
+    if by_agent and agents:
+        print("Por agente:")
+        for agent, n in sorted(agents.items(), key=lambda kv: -kv[1]):
+            print(f"  {n:5d}  {agent}")
 
 
 def main(argv=None):
