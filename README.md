@@ -26,7 +26,7 @@ Na primeira sessão num repositório sem `CLAUDE.md` ou sem `docs/agents/checks.
 
 Para tratar um pedido sem o processo, escreva "sem okeanos" (ou "modo livre") na mensagem.
 
-### Instalador (Claude Code e Codex)
+### Instalador (Claude Code, Codex e Copilot)
 
 Um comando instala em todos os agentes que estiverem no PATH:
 
@@ -34,15 +34,16 @@ Um comando instala em todos os agentes que estiverem no PATH:
 curl -fsSL https://raw.githubusercontent.com/mateusblm/okeanos-agent/main/install.sh | sh
 ```
 
-O script clona o repositório em `~/.local/share/okeanos` (ou o atualiza, se já existir) e roda `bin/okeanos install`. Num clone seu, rode `bin/okeanos install` direto. Opções: `--agent claude|codex` (só esse agente; repita ou separe por vírgula), `--dry-run` (mostra o que faria) e `--uninstall` (remove só o que o Okeanos instalou). Para atualizar, rode o mesmo comando de novo: o instalador é idempotente.
+O script clona o repositório em `~/.local/share/okeanos` (ou o atualiza, se já existir) e roda `bin/okeanos install`. Num clone seu, rode `bin/okeanos install` direto. Opções: `--agent claude|codex|copilot` (só esse agente; repita ou separe por vírgula), `--dry-run` (mostra o que faria) e `--uninstall` (remove só o que o Okeanos instalou). Para atualizar, rode o mesmo comando de novo: o instalador é idempotente.
 
 | Agente | O que o instalador faz |
 | :- | :- |
 | Claude Code | `claude plugin marketplace add <clone>` e `claude plugin install okeanos@okeanos`, só se ainda não estiverem. Não mexe nos arquivos de configuração do Claude. |
 | Codex | Liga cada skill em `~/.agents/skills/<nome>` (links para o clone, então um `git pull` atualiza), põe o bloco do processo entre os marcadores `<!-- okeanos:start -->`/`<!-- okeanos:end -->` no `AGENTS.md` global (`$CODEX_HOME`, padrão `~/.codex`) e os hooks em `~/.codex/hooks.json`. |
+| Copilot (CLI) | Usa as mesmas skills em `~/.agents/skills` (lidas pelo Copilot e pelo Codex; desinstalar um agente mantém as skills enquanto o outro ainda tem o Okeanos), põe o bloco do processo em `~/.copilot/copilot-instructions.md` (`$COPILOT_HOME`, padrão `~/.copilot`) e os hooks em `~/.copilot/hooks/okeanos.json`, um arquivo só do Okeanos. |
 | Todos | Liga a CLI `okeanos` em `~/.local/bin` e avisa se essa pasta não está no PATH. |
 
-O instalador só edita o bloco marcado e os hooks cujo comando é o do Okeanos; o resto do arquivo fica como estava. Antes de mudar um arquivo, guarda a versão anterior em `<arquivo>.okeanos-bak`. Se um `hooks.json` ou `config.toml` existente não for JSON ou TOML válido, ele para aquele agente sem escrever nada e diz qual arquivo corrigir. Uma skill do Okeanos cujo nome já existe em `~/.agents/skills` com outro conteúdo é pulada, com aviso.
+O instalador só edita o bloco marcado e os hooks cujo comando é o do Okeanos; o resto do arquivo fica como estava. Antes de mudar um arquivo, guarda a versão anterior em `<arquivo>.okeanos-bak`. Se um `hooks.json`, `okeanos.json` ou `config.toml` existente não for JSON ou TOML válido, ele para aquele agente sem escrever nada e diz qual arquivo corrigir. Uma skill do Okeanos cujo nome já existe em `~/.agents/skills` com outro conteúdo é pulada, com aviso.
 
 **No Codex, o que muda:**
 
@@ -52,6 +53,16 @@ O instalador só edita o bloco marcado e os hooks cujo comando é o do Okeanos; 
 - O arquivo de contexto do projeto é o `AGENTS.md`: o `onboard` cria esse arquivo, e não o `CLAUDE.md`.
 - Se existir `~/.codex/AGENTS.override.md`, o Codex lê ele no lugar do `AGENTS.md` global, e o processo do Okeanos não é carregado. O instalador avisa.
 - As skills manuais do Claude Code (`disable-model-invocation`) podem ser escolhidas sozinhas pelo Codex, que não lê esse campo.
+
+**No Copilot, o que muda:**
+
+- Reinicie o Copilot CLI depois de instalar ou atualizar: hooks e instruções são lidos quando ele inicia. Se `~/.copilot/settings.json` tiver `disableAllHooks: true`, o instalador avisa que as proteções não vão rodar.
+- No Copilot CLI o hook pede confirmação de verdade: onde o Claude Code perguntaria, o Copilot pergunta, e a mensagem também traz `Para aprovar: okeanos aprovar <alvo>`. Com `COPILOT_ALLOW_ALL` no ambiente, o Okeanos bloqueia em vez de perguntar, porque pode não haver ninguém olhando.
+- O Copilot na nuvem (cloud agent) trata "perguntar" como "negar" e só lê hooks de `.github/hooks/` do repositório; os hooks de usuário que o instalador escreve não valem lá. Se você ligar o Okeanos ali por conta própria, ele bloqueia com a linha de `okeanos aprovar`.
+- O Copilot descarta a saída de hooks no envio de mensagem, então o lembrete de rota vai no início da sessão.
+- O Copilot lê `AGENTS.md`, `CLAUDE.md` e `.github/copilot-instructions.md` do projeto; qualquer um deles satisfaz o aviso de `onboard`.
+- O Copilot não põe no shell das ferramentas uma variável que identifique a sessão; `okeanos aprovar` continua exigindo um terminal interativo, e os hooks continuam negando ao agente rodá-lo.
+- Com a sandbox de sessão do Copilot ligada, os hooks rodam dentro dela; inclua o clone do Okeanos em `sandbox.userPolicy` nas configurações do Copilot, ou o hook falha (e, no `preToolUse`, falha fechado).
 
 ## Problemas que o Okeanos trata
 
@@ -110,7 +121,7 @@ Você pode pular etapas ("pula a entrevista", "só faz"). Os gates continuam val
 
 ## Hooks
 
-No Claude Code, definidos em [`hooks/hooks.json`](hooks/hooks.json); no Codex, escritos pelo instalador em `~/.codex/hooks.json` (`hooks/run --agent codex <hook>`). Implementados em [`hooks/okeanos_engine/`](hooks/okeanos_engine/) (regras neutras e um dialeto por agente), com entrada em [`hooks/okeanos.py`](hooks/okeanos.py).
+No Claude Code, definidos em [`hooks/hooks.json`](hooks/hooks.json); no Codex, escritos pelo instalador em `~/.codex/hooks.json` (`hooks/run --agent codex <hook>`); no Copilot, em `~/.copilot/hooks/okeanos.json` (`hooks/run --agent copilot <hook>`, eventos `sessionStart`, `preToolUse`, `postToolUse` e `agentStop`). Implementados em [`hooks/okeanos_engine/`](hooks/okeanos_engine/) (regras neutras e um dialeto por agente), com entrada em [`hooks/okeanos.py`](hooks/okeanos.py).
 
 | Evento | Comportamento |
 | :- | :- |
@@ -135,7 +146,7 @@ okeanos aprovacoes                   # lista as ativas
 okeanos revogar [alvo]               # remove uma ou todas
 ```
 
-A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE` ou as variáveis `CODEX_*` que o Codex põe no shell das ferramentas), e os hooks bloqueiam o agente que tenta rodá-los ou escrever em `.git/okeanos/`. Segredos, force push, `--no-verify`, `rm -r` fora do repo e pacote inexistente nunca são aprováveis. `okeanos doctor` mostra onde o Okeanos está, o que o repositório tem e quais agentes estão no PATH.
+A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE` ou as variáveis `CODEX_*` que o Codex põe no shell das ferramentas), e os hooks bloqueiam o agente que tenta rodá-los ou escrever em `.git/okeanos/`. Segredos, force push, `--no-verify`, `rm -r` fora do repo e pacote inexistente nunca são aprováveis. `okeanos doctor` mostra onde o Okeanos está, o que o repositório tem, quais agentes estão no PATH e o que está instalado no Codex e no Copilot.
 
 ### Git hooks
 
