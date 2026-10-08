@@ -16,7 +16,7 @@ from . import approvals, githooks, installer
 from .cli import metrics_summary
 from .plumbing import git, repo_root
 
-AGENT_CLIS = ("claude", "codex", "copilot", "cursor-agent")
+AGENT_CLIS = ("claude", "codex", "copilot", "cursor", "cursor-agent")
 # Set by the agents in the shell where they run tools (Codex 0.161: CODEX_THREAD_ID, CODEX_SESSION_ID,
 # CODEX_CI, plus CODEX_SANDBOX* when sandboxed; Claude Code: CLAUDECODE; Cursor: CURSOR_AGENT, set by
 # the IDE's agent terminals and cursor-agent, not in Cursor's official docs, so the TTY check still matters).
@@ -153,7 +153,7 @@ def cmd_githook(args):
 
 
 def cmd_install(args):
-    return installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run)
+    return installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run, project=args.project)
 
 
 def cmd_doctor(args):
@@ -172,6 +172,12 @@ def cmd_doctor(args):
     for name in AGENT_CLIS:
         found = shutil.which(name)
         print(f"  {name}: {found or 'não encontrado'}")
+    home = installer.home_dir()
+    cursor_hooks = os.path.join(installer.cursor_dir(home), "hooks.json")
+    print("cursor:")
+    print(f"  hooks do Okeanos em {cursor_hooks}: {yes(installer.has_okeanos_hooks(cursor_hooks, 'cursor'))}")
+    if root:
+        print(f"  regra do projeto {installer.CURSOR_RULE}: {yes(os.path.exists(os.path.join(root, installer.CURSOR_RULE)))}")
     return 0
 
 
@@ -200,13 +206,18 @@ def parser():
     h.add_argument("hook", choices=githooks.HOOKS)
     h.add_argument("rest", nargs=argparse.REMAINDER)
     h.set_defaults(func=cmd_githook)
-    i = sub.add_parser("install", help="instala o Okeanos nos agentes encontrados (Claude Code, Codex)",
-                       description="Detecta os agentes no PATH e instala em cada um: Claude Code pelo marketplace; "
+    i = sub.add_parser("install", help="instala o Okeanos nos agentes encontrados (Claude Code, Codex, Cursor)",
+                       description="Detecta os agentes e instala em cada um: Claude Code pelo marketplace; "
                                    "Codex com skills em ~/.agents/skills, o bloco do processo no AGENTS.md global e os "
-                                   "hooks no hooks.json do usuário. Também liga a CLI em ~/.local/bin. Idempotente; "
+                                   "hooks no hooks.json do usuário; Cursor com as mesmas skills e os hooks em "
+                                   "~/.cursor/hooks.json (as regras do Cursor vão por projeto, com --project). "
+                                   "Também liga a CLI em ~/.local/bin. Idempotente; "
                                    "edita só o que é do Okeanos e guarda <arquivo>.okeanos-bak antes de mudar.")
     i.add_argument("--agent", action="append", metavar="AGENTE",
-                   help="só este agente (repita ou separe por vírgula): claude, codex")
+                   help="só este agente (repita ou separe por vírgula): claude, codex, cursor")
+    i.add_argument("--project", action="store_true",
+                   help="com --agent cursor: escreve o processo como regra do Cursor (.cursor/rules/okeanos.mdc) "
+                        "no repositório atual")
     i.add_argument("--uninstall", action="store_true", help="remove só o que o Okeanos instalou")
     i.add_argument("--dry-run", action="store_true", help="mostra o que faria, sem mudar nada")
     i.set_defaults(func=cmd_install)

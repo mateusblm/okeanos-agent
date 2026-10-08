@@ -12,7 +12,9 @@ Paths: OKEANOS_HOME_DIR replaces the home directory (tests), also as HOME for th
 agent CLIs the installer runs. Codex's directory is
 $CODEX_HOME or ~/.codex (CODEX_HOME is ignored when OKEANOS_HOME_DIR is set).
 Claude Code is installed through its own marketplace commands; its settings are
-never touched.
+never touched. Cursor gets hooks in ~/.cursor/hooks.json and the shared skills; it
+has no file for global rules, so `--project` writes the process as a project rule
+(.cursor/rules/okeanos.mdc) in the current repository.
 """
 
 import json
@@ -27,8 +29,8 @@ try:
 except ImportError:  # Python < 3.11: config.toml can't be checked, and we never write it
     tomllib = None
 
-SUPPORTED = ("claude", "codex")
-LATER = ("copilot", "cursor")
+SUPPORTED = ("claude", "codex", "cursor")
+LATER = ("copilot",)
 BLOCK_START = "<!-- okeanos:start -->"
 BLOCK_END = "<!-- okeanos:end -->"
 BACKUP = ".okeanos-bak"
@@ -79,14 +81,15 @@ def skill_dirs(root):
 # ---------------------------------------------------------------------------
 
 class Write:
-    def __init__(self, path, content, what):
-        self.path, self.content, self.what = path, content, what
+    def __init__(self, path, content, what, keep_backup=True):
+        self.path, self.content, self.what, self.keep_backup = path, content, what, keep_backup
 
     def describe(self):
         return f"{self.what}: {self.path}"
 
     def apply(self):
-        backup(self.path)
+        if self.keep_backup:
+            backup(self.path)
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         fd, tmp = tempfile.mkstemp(dir=os.path.dirname(self.path), prefix=".okeanos-")
         with os.fdopen(fd, "w") as f:
@@ -113,14 +116,14 @@ class Link:
 
 
 class Remove:
-    def __init__(self, path, what):
-        self.path, self.what = path, what
+    def __init__(self, path, what, keep_backup=True):
+        self.path, self.what, self.keep_backup = path, what, keep_backup
 
     def describe(self):
         return f"{self.what}: {self.path}"
 
     def apply(self):
-        if not os.path.islink(self.path):
+        if not os.path.islink(self.path) and self.keep_backup:
             backup(self.path)
         os.unlink(self.path)
 
@@ -268,6 +271,48 @@ def skill_actions(root, skills_dir, uninstall, notes):
     return actions
 
 
+def shared_skills_dir(home):
+    """~/.agents/skills: read natively by Codex and Cursor (and Copilot)."""
+    return os.path.join(home, ".agents", "skills")
+
+
+def has_okeanos_hooks(path, agent):
+    """True when the hooks file at path holds a handler of this agent's Okeanos hooks (any hooks.json shape)."""
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except Exception:  # noqa: BLE001
+        return False
+    owned, stack = owned_command(agent), [data]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            if isinstance(item.get("command"), str) and owned.search(item["command"]):
+                return True
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return False
+
+
+# Agents that read the shared skills directory, and how to tell they still have Okeanos.
+SHARED_SKILLS_USERS = {
+    "codex": lambda home: has_okeanos_hooks(os.path.join(codex_dir(home), "hooks.json"), "codex"),
+    "cursor": lambda home: has_okeanos_hooks(os.path.join(cursor_dir(home), "hooks.json"), "cursor"),
+}
+
+
+def shared_skill_actions(root, home, agent, uninstall, notes):
+    """Skills in the shared directory. Uninstalling one agent keeps them while another still uses them."""
+    skills_dir = shared_skills_dir(home)
+    if uninstall:
+        still = [a for a, installed in SHARED_SKILLS_USERS.items() if a != agent and installed(home)]
+        if still:
+            notes.append(f"skills mantidas em {skills_dir}: ainda usadas por {', '.join(still)}.")
+            return []
+    return skill_actions(root, skills_dir, uninstall, notes)
+
+
 def plan_codex(root, home, uninstall):
     notes, actions = [], []
     cdir = codex_dir(home)
@@ -302,7 +347,7 @@ def plan_codex(root, home, uninstall):
             notes.append(f"aviso: {os.path.join(cdir, 'AGENTS.override.md')} existe e o Codex lê ele no lugar do "
                          "AGENTS.md global; o processo do Okeanos não será carregado enquanto ele existir.")
 
-    actions += skill_actions(root, os.path.join(home, ".agents", "skills"), uninstall, notes)
+    actions += shared_skill_actions(root, home, "codex", uninstall, notes)
     if not uninstall and any(isinstance(a, Write) and a.path == hooks_path for a in actions):
         notes.append("próximo passo: abra o Codex e rode /hooks para revisar e confiar nos hooks do Okeanos; "
                      "o Codex não roda hooks novos ou alterados antes disso.")
@@ -347,7 +392,112 @@ def plan_claude(root, home, uninstall):
     return actions, notes
 
 
-PLANNERS = {"claude": plan_claude, "codex": plan_codex}
+# ---------------------------------------------------------------------------
+# Cursor (https://cursor.com/docs/agent/hooks): flat hooks.json, version 1
+# ---------------------------------------------------------------------------
+
+CURSOR_FILE_TOOLS = "Write|StrReplace|Delete|Edit|MultiEdit"
+CURSOR_RULE = os.path.join(".cursor", "rules", "okeanos.mdc")
+CURSOR_RULE_FRONTMATTER = ("---\ndescription: Processo Okeanos (rotas, gates e definição de pronto). "
+                           "Gerado por `okeanos install --agent cursor --project`.\nalwaysApply: true\n---\n\n")
+
+
+def cursor_dir(home):
+    return os.path.join(home, ".cursor")
+
+
+def cursor_found(home):
+    return shutil.which("cursor") or shutil.which("cursor-agent") or (
+        os.path.isdir(cursor_dir(home)) and cursor_dir(home))
+
+
+def cursor_hooks(root):
+    run = f'"{root}/hooks/run" --agent cursor'
+    onboard = f'"{root}/hooks/onboard-check.sh" --agent cursor'
+    return {
+        "sessionStart": [{"command": onboard, "timeout": 10}, {"command": f"{run} session-start", "timeout": 10}],
+        "beforeShellExecution": [{"command": f"{run} shell", "timeout": 30}],
+        "preToolUse": [{"command": f"{run} pre-tool", "matcher": CURSOR_FILE_TOOLS, "timeout": 30}],
+        "postToolUse": [{"command": f"{run} post-tool", "matcher": CURSOR_FILE_TOOLS, "timeout": 120}],
+        "afterAgentResponse": [{"command": f"{run} agent-response", "timeout": 10}],
+        "stop": [{"command": f"{run} stop", "timeout": 1800}],
+    }
+
+
+def load_cursor_hooks(path):
+    """The parsed ~/.cursor/hooks.json ({} when missing). Abort if it isn't the documented shape."""
+    text = read(path)
+    if text is None or not text.strip():
+        return {}
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise Abort(f"{path} não é JSON válido ({e}). Nada foi alterado; corrija o arquivo e rode de novo.")
+    hooks = data.get("hooks", {}) if isinstance(data, dict) else None
+    ok = isinstance(hooks, dict) and all(
+        isinstance(entries, list) and all(isinstance(h, dict) for h in entries) for entries in hooks.values())
+    if not ok:
+        raise Abort(f"{path} não tem o formato de hooks do Cursor ({{\"version\": 1, \"hooks\": {{<evento>: [...]}}}}). "
+                    "Nada foi alterado; corrija o arquivo e rode de novo.")
+    return data
+
+
+def strip_cursor_owned(data):
+    """A copy without Okeanos's Cursor handlers (and the events they emptied)."""
+    data = json.loads(json.dumps(data))
+    owned = owned_command("cursor")
+    hooks = data.get("hooks", {})
+    for event in list(hooks):
+        kept = [h for h in hooks[event] if not owned.search(str(h.get("command", "")))]
+        if kept or not hooks[event]:
+            hooks[event] = kept
+        else:
+            del hooks[event]
+    return data
+
+
+def plan_cursor(root, home, uninstall):
+    notes, actions = [], []
+    hooks_path = os.path.join(cursor_dir(home), "hooks.json")
+    current = load_cursor_hooks(hooks_path)
+    new = strip_cursor_owned(current)
+    if not uninstall:
+        new.setdefault("version", 1)
+        new.setdefault("hooks", {})
+        for event, entries in cursor_hooks(root).items():
+            new["hooks"].setdefault(event, []).extend(entries)
+    if new != current and (current or not uninstall):
+        actions.append(Write(hooks_path, json.dumps(new, indent=2, ensure_ascii=False) + "\n",
+                             "remove hooks" if uninstall else "hooks"))
+    actions += shared_skill_actions(root, home, "cursor", uninstall, notes)
+    if not uninstall:
+        notes.append("regras: o Cursor guarda as regras globais (User Rules) só na interface, sem arquivo. Para o "
+                     "processo do Okeanos valer, rode `okeanos install --agent cursor --project` na raiz de cada "
+                     "repositório (escreve .cursor/rules/okeanos.mdc) ou cole o conteúdo de "
+                     f"{os.path.join(root, 'adapters', 'agents-md', 'okeanos.md')} em Customize → Rules.")
+        if any(isinstance(a, Write) and a.path == hooks_path for a in actions):
+            notes.append("próximo passo: confira em Cursor Settings → Hooks que os hooks do Okeanos aparecem; "
+                         "se não aparecerem, reinicie o Cursor.")
+    return actions, notes
+
+
+def plan_cursor_project(root, repo, uninstall):
+    """The process as an always-applied Cursor project rule in repo."""
+    path = os.path.join(repo, CURSOR_RULE)
+    current = read(path)
+    if current is not None and BLOCK_START not in current:
+        raise Abort(f"{path} já existe e não é do Okeanos. Nada foi alterado.")
+    if uninstall:
+        return ([Remove(path, "remove regra do projeto", keep_backup=False)] if current is not None else []), []
+    with open(os.path.join(root, "adapters", "agents-md", "okeanos.md")) as f:
+        wanted = CURSOR_RULE_FRONTMATTER + f.read()
+    actions = [] if current == wanted else [Write(path, wanted, "regra do projeto", keep_backup=False)]
+    notes = [f"commite {CURSOR_RULE} para valer para quem usa o Cursor neste repositório (ou ponha no .gitignore); "
+             "depois de atualizar o Okeanos, rode este comando de novo."]
+    return actions, notes
+
+
+PLANNERS = {"claude": plan_claude, "codex": plan_codex, "cursor": plan_cursor}
 
 
 # ---------------------------------------------------------------------------
@@ -383,7 +533,32 @@ def requested_agents(raw):
     return names, bad
 
 
-def run(agents_arg, uninstall=False, dry_run=False, out=print):
+def found(agent, home):
+    """Where this agent was found on this machine, or None."""
+    return cursor_found(home) if agent == "cursor" else shutil.which(agent)
+
+
+def run_project(names, root, uninstall, dry_run, out):
+    """`okeanos install --agent cursor --project`: the process rule in the current repository."""
+    if names != ["cursor"]:
+        out("okeanos install: --project só vale para o Cursor: okeanos install --agent cursor --project")
+        return 2
+    from .plumbing import repo_root
+    repo = repo_root(os.getcwd())
+    if not repo:
+        out("okeanos install --project: aqui não é um repositório git; rode na raiz do projeto.")
+        return 2
+    prefix = "(simulação) " if dry_run else ""
+    out(f"{prefix}Okeanos {'desinstalação' if uninstall else 'instalação'} no projeto {repo}")
+    try:
+        actions, notes = plan_cursor_project(root, repo, uninstall)
+    except Abort as e:
+        out(f"cursor (projeto): ERRO, nada instalado: {e}")
+        return 1
+    return 0 if report("cursor (projeto)", actions, notes, dry_run, prefix, out) else 1
+
+
+def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False):
     root, home = plugin_root(), home_dir()
     names, bad = requested_agents(agents_arg)
     if bad:
@@ -391,13 +566,17 @@ def run(agents_arg, uninstall=False, dry_run=False, out=print):
         out("okeanos install: " + ", ".join(f"`{n}` ainda não é suportado" if n in later else f"agente desconhecido `{n}`"
                                             for n in bad) + f". Suportados: {', '.join(SUPPORTED)}.")
         return 2
+    if project:
+        return run_project(names, root, uninstall, dry_run, out)
     prefix = "(simulação) " if dry_run else ""
     out(f"{prefix}Okeanos {'desinstalação' if uninstall else 'instalação'} a partir de {root}")
     if not names:
-        found = {a: shutil.which(a) for a in SUPPORTED}
-        names = [a for a in SUPPORTED if found[a]] if not uninstall else [a for a in SUPPORTED if found[a] or a == "codex"]
+        # On uninstall, agents configured by files are always visited: their CLI may be gone already.
+        by_files = ("codex", "cursor")
+        found_at = {a: found(a, home) for a in SUPPORTED}
+        names = [a for a in SUPPORTED if found_at[a] or (uninstall and a in by_files)]
         for a in SUPPORTED:
-            if not found[a] and not (uninstall and a == "codex"):
+            if not found_at[a] and not (uninstall and a in by_files):
                 out(f"{a}: não encontrado no PATH")
         if not names:
             out("Nenhum agente suportado encontrado no PATH (" + ", ".join(SUPPORTED) + "). Nada foi alterado.")
