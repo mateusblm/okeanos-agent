@@ -36,7 +36,7 @@ Don't run anything that installs, builds, migrates, starts services, or touches 
 
 ## 2. Draft `CLAUDE.md` and get it approved
 
-Call the Skill tool with "writing-for-agents" for how to write for an agent reader. Draft this shape (headings in the session language):
+Use the `writing-for-agents` skill for how to write for an agent reader. Draft this shape (headings in the session language):
 
 ```markdown
 # <Nome do projeto>
