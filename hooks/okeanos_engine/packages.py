@@ -64,6 +64,14 @@ def package_requests(toks):
         if skip_next:
             skip_next = False
             continue
+        # Shell redirections (2>&1, >/dev/null, &>log, < in) are not names; a bare
+        # operator (>, 2>, >>, <) also takes the next token as its target.
+        redirect = re.search(r"^\d+(?=[<>])|&>|[<>]", a)
+        if redirect:
+            skip_next = bool(re.fullmatch(r"\d*(>>?|<|>&|<&)|&>>?", a[redirect.start():]))
+            a = a[:redirect.start()]
+            if not a:
+                continue
         if a in ("-r", "--requirement", "-e", "--editable", "-c", "--constraint", "--index-url", "-i", "--registry", "--features"):
             skip_next = True
             continue
