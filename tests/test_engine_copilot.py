@@ -349,6 +349,20 @@ def test_failing_done_continues_the_turn(repo):
     assert "FAILED" in out["reason"] and "tentativa 1/3" in out["reason"] and HANDOFF in out["reason"]
 
 
+def test_handoff_line_in_the_transcript_lets_copilot_stop(repo, tmp_path):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "exit 1"}]})
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    transcript = tmp_path / "events.jsonl"
+    transcript.write_text("\n".join(json.dumps(e) for e in [
+        {"type": "user.message", "data": {"content": "faça"}},
+        {"type": "assistant.message", "data": {"content": "Preciso de uma decisão.\n\n" + HANDOFF}},
+        {"type": "tool.execution_complete", "data": {}},
+    ]) + "\n")
+    payload = camel(repo) | {"transcriptPath": str(transcript), "stopReason": "end_turn", "stop_hook_active": False}
+    assert hook("stop", payload) == (0, None)
+
+
 def test_failing_done_also_blocks_in_the_cloud(repo):
     set_checks(repo, {"onDone": [{"name": "tests", "cmd": "exit 1"}]})
     session_start(repo)
