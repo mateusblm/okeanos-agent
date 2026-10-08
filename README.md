@@ -28,8 +28,10 @@ Para fugir do processo numa demanda, escreva **"sem okeanos"** ou **"modo livre"
 
 Antes do G2, a skill [`as-built`](skills/engineering/as-built/SKILL.md) documenta o que foi de fato implementado, lendo o código e o diff, não o plano:
 
-- `docs/features/<feature>.md`: o que foi construído, diagramas Mermaid (módulos, fluxo principal, dados), módulos tocados, testes e pendências;
-- `docs/architecture.md`: a visão geral do sistema, atualizada a cada entrega (criada na primeira vez).
+- `docs/architecture.md`: a arquitetura viva no padrão **arc42** (12 seções), com diagramas **C4** em Mermaid (contexto, containers, componentes, execução e implantação). Criada na primeira entrega, atualizada nas seguintes;
+- `docs/features/<feature>.md`: o que foi construído, onde se encaixa no C4 (novo em verde, alterado em amarelo), fluxos, testes e pendências.
+
+Exemplo completo em [`examples/calc`](examples/calc).
 
 Os docs entram no mesmo commit/PR do código e renderizam direto no GitHub. Em bugs, só atualiza docs existentes se o fix mudou comportamento documentado.
 
