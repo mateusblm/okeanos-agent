@@ -2,8 +2,8 @@
 # SessionStart: if the session is in a git repo with source files but no agent
 # context file (CLAUDE.md in Claude Code, AGENTS.md elsewhere) or no
 # docs/agents/checks.json, tell the agent to run the onboard skill first.
-#   onboard-check.sh [--agent claude|codex|...]   (default: claude)
-# The output (hookSpecificOutput.additionalContext) is read by Claude Code and Codex alike.
+#   onboard-check.sh [--agent claude|codex|cursor|...]   (default: claude)
+# The output is hookSpecificOutput.additionalContext (Claude Code, Codex) or additional_context (Cursor).
 set -u
 
 agent=claude
@@ -14,7 +14,9 @@ esac
 
 input="$(cat 2>/dev/null || true)"
 cwd="$(printf '%s' "$input" | sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
-cwd="${cwd:-${CLAUDE_PROJECT_DIR:-$PWD}}"
+# Cursor may send an empty cwd; its workspace_roots[0] is the project.
+[ -n "$cwd" ] || cwd="$(printf '%s' "$input" | sed -n 's/.*"workspace_roots"[[:space:]]*:[[:space:]]*\[[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+cwd="${cwd:-${CURSOR_PROJECT_DIR:-${CLAUDE_PROJECT_DIR:-$PWD}}}"
 
 root="$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)" || exit 0
 # Only repos with something beyond a README are worth onboarding.
@@ -49,4 +51,8 @@ else
 fi
 
 msg="Okeanos: ${note} Then continue with the user's request."
-printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
+if [ "$agent" = cursor ]; then
+  printf '{"additional_context":"%s"}\n' "$msg"
+else
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
+fi

@@ -18,9 +18,10 @@ from .plumbing import git, repo_root
 
 AGENT_CLIS = ("claude", "codex", "copilot", "cursor-agent")
 # Set by the agents in the shell where they run tools (Codex 0.161: CODEX_THREAD_ID, CODEX_SESSION_ID,
-# CODEX_CI, plus CODEX_SANDBOX* when sandboxed; Claude Code: CLAUDECODE).
+# CODEX_CI, plus CODEX_SANDBOX* when sandboxed; Claude Code: CLAUDECODE; Cursor: CURSOR_AGENT, set by
+# the IDE's agent terminals and cursor-agent, not in Cursor's official docs, so the TTY check still matters).
 AGENT_SESSION_VARS = ("CLAUDECODE", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_CI", "CODEX_SANDBOX",
-                      "CODEX_SANDBOX_NETWORK_DISABLED")
+                      "CODEX_SANDBOX_NETWORK_DISABLED", "CURSOR_AGENT")
 IN_AGENT = ("okeanos {sub}: recusado, `{var}` mostra que este shell é de uma sessão de agente. "
             "Aprovações são do humano: rode `okeanos {sub} ...` num terminal seu, fora do agente.")
 TTY_ONLY = ("okeanos {sub}: recusado, este comando precisa de um terminal interativo. "

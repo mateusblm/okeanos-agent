@@ -11,7 +11,7 @@ render(hook, event, decision) -> (stdout_text, exit_code)
 Adding an agent: write dialects/<agent>.py and register it below. Rules stay untouched.
 """
 
-from . import claude, codex
+from . import claude, codex, cursor
 
-DIALECTS = {claude.NAME: claude, codex.NAME: codex}
+DIALECTS = {claude.NAME: claude, codex.NAME: codex, cursor.NAME: cursor}
 DEFAULT = claude.NAME
