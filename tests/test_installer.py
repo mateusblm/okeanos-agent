@@ -235,6 +235,183 @@ def test_local_bin_on_path_gives_no_warning(home, fakebin):
 
 
 # ---------------------------------------------------------------------------
+# cursor: user hooks in ~/.cursor/hooks.json, shared skills, rules per project
+# ---------------------------------------------------------------------------
+
+CURSOR_HOOKS = {"sessionStart": "session-start", "beforeShellExecution": "shell", "preToolUse": "pre-tool",
+                "postToolUse": "post-tool", "afterAgentResponse": "agent-response", "stop": "stop"}
+
+
+def cursor_install(home, fakebin, *args, cwd=None):
+    """`okeanos install` run from cwd (a temp dir by default, never this repository)."""
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("OKEANOS_", "CODEX_", "CLAUDE", "CURSOR")) and k != "PATH"}
+    env["OKEANOS_HOME_DIR"] = str(home)
+    env["FAKE_STATE"] = str(fakebin.parent / "state")
+    env["PATH"] = os.pathsep.join((str(fakebin), "/usr/bin", "/bin"))
+    p = subprocess.run([sys.executable, str(CLI), "install", *args], capture_output=True, text=True, env=env,
+                       stdin=subprocess.DEVNULL, timeout=120, cwd=cwd or str(home.parent))
+    return p.returncode, p.stdout + p.stderr
+
+
+def cursor_entries(home):
+    data = json.loads((home / ".cursor" / "hooks.json").read_text())
+    return data, {event: [h for h in entries if "--agent cursor" in h.get("command", "")]
+                  for event, entries in data["hooks"].items()}
+
+
+@pytest.mark.parametrize("found_by", ["cursor", "cursor-agent", "config-dir"])
+def test_cursor_is_detected(home, fakebin, found_by):
+    if found_by == "config-dir":
+        (home / ".cursor").mkdir()
+    else:
+        add_agent(fakebin, found_by)
+    code, out = cursor_install(home, fakebin)
+    assert code == 0, out
+    assert (home / ".cursor" / "hooks.json").exists()
+
+
+def test_cursor_install_puts_every_piece_in_place(home, fakebin):
+    add_agent(fakebin, "cursor")
+    code, out = cursor_install(home, fakebin)
+    assert code == 0, out
+    data, ours = cursor_entries(home)
+    assert data["version"] == 1
+    assert set(data["hooks"]) == set(CURSOR_HOOKS)
+    for event, sub in CURSOR_HOOKS.items():
+        commands = [h["command"] for h in ours[event]]
+        assert any(c.endswith(f"--agent cursor {sub}") and str(ROOT / "hooks" / "run") in c for c in commands), event
+    assert any("onboard-check.sh" in h["command"] for h in ours["sessionStart"])
+    assert all(h.get("matcher") for h in ours["preToolUse"] + ours["postToolUse"])
+    assert "Shell" not in ours["preToolUse"][0]["matcher"]  # beforeShellExecution covers the shell
+    for name in SKILLS:
+        link = home / ".agents" / "skills" / name
+        assert link.is_symlink() and (link / "SKILL.md").is_file(), name
+    # no file-based global rules in Cursor: say how to enable per project
+    assert "--project" in out and "Rules" in out
+    assert not (home / ".cursor" / "rules").exists()
+    assert (home / ".local" / "bin" / "okeanos").is_symlink()
+
+
+def test_cursor_second_run_is_idempotent(home, fakebin):
+    add_agent(fakebin, "cursor")
+    cursor_install(home, fakebin)
+    first = snapshot(home)
+    code, out = cursor_install(home, fakebin)
+    assert code == 0, out
+    assert snapshot(home) == first
+
+
+def test_cursor_user_hooks_are_preserved_backed_up_and_restored(home, fakebin):
+    add_agent(fakebin, "cursor")
+    (home / ".cursor").mkdir()
+    user = {"version": 1, "hooks": {"stop": [{"command": "./audit.sh", "loop_limit": 10}],
+                                    "afterFileEdit": [{"command": "./format.sh"}]}}
+    (home / ".cursor" / "hooks.json").write_text(json.dumps(user))
+    code, out = cursor_install(home, fakebin)
+    assert code == 0, out
+    data, ours = cursor_entries(home)
+    assert {"command": "./audit.sh", "loop_limit": 10} in data["hooks"]["stop"]
+    assert data["hooks"]["afterFileEdit"] == [{"command": "./format.sh"}]
+    assert ours["stop"]
+    assert json.loads((home / ".cursor" / "hooks.json.okeanos-bak").read_text()) == user
+    code, out = cursor_install(home, fakebin, "--uninstall", "--agent", "cursor")
+    assert code == 0, out
+    assert json.loads((home / ".cursor" / "hooks.json").read_text()) == user
+    assert not any((home / ".agents" / "skills" / n).exists() for n in SKILLS)
+
+
+@pytest.mark.parametrize("content", ["{ not json", '{"version": 1, "hooks": []}',
+                                     '{"version": 1, "hooks": {"stop": {"command": "x"}}}'])
+def test_invalid_cursor_hooks_abort_without_writing(home, fakebin, content):
+    add_agent(fakebin, "cursor")
+    (home / ".cursor").mkdir()
+    (home / ".cursor" / "hooks.json").write_text(content)
+    before = snapshot(home)
+    code, out = cursor_install(home, fakebin, "--agent", "cursor")
+    assert code != 0
+    assert str(home / ".cursor" / "hooks.json") in out
+    assert {k: v for k, v in snapshot(home).items() if not k.startswith(".local")} == before
+
+
+def test_cursor_dry_run_writes_nothing(home, fakebin):
+    add_agent(fakebin, "cursor")
+    code, out = cursor_install(home, fakebin, "--dry-run", "--agent", "cursor")
+    assert code == 0, out
+    assert snapshot(home) == {}
+    assert "hooks.json" in out
+
+
+def test_uninstalling_cursor_keeps_the_skills_codex_still_uses(home, fakebin):
+    add_agent(fakebin, "cursor")
+    add_agent(fakebin, "codex")
+    cursor_install(home, fakebin)
+    code, out = cursor_install(home, fakebin, "--uninstall", "--agent", "cursor")
+    assert code == 0, out
+    assert not cursor_entries(home)[1].get("stop")
+    assert all((home / ".agents" / "skills" / n).is_symlink() for n in SKILLS)
+    assert "codex" in out
+    code, out = cursor_install(home, fakebin, "--uninstall")
+    assert code == 0, out
+    assert not any((home / ".agents" / "skills" / n).exists() for n in SKILLS)
+
+
+# --project: the process as a Cursor project rule in the current repository
+
+@pytest.fixture
+def project(tmp_path):
+    root = tmp_path / "proj"
+    (root / "sub").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    return root
+
+
+def test_cursor_project_writes_an_always_applied_rule(home, fakebin, project):
+    code, out = cursor_install(home, fakebin, "--agent", "cursor", "--project", cwd=project / "sub")
+    assert code == 0, out
+    rule = (project / ".cursor" / "rules" / "okeanos.mdc").read_text()
+    assert rule.startswith("---\n") and "alwaysApply: true" in rule.split("---")[1]
+    assert BLOCK in rule
+    assert not (home / ".cursor").exists() and not (home / ".local").exists()
+    first = snapshot(project)
+    assert cursor_install(home, fakebin, "--agent", "cursor", "--project", cwd=project)[0] == 0
+    assert snapshot(project) == first
+    code, out = cursor_install(home, fakebin, "--agent", "cursor", "--project", "--uninstall", cwd=project)
+    assert code == 0, out
+    assert not (project / ".cursor" / "rules" / "okeanos.mdc").exists()
+
+
+def test_cursor_project_leaves_a_users_rule_alone(home, fakebin, project):
+    rules = project / ".cursor" / "rules"
+    rules.mkdir(parents=True)
+    (rules / "okeanos.mdc").write_text("---\nalwaysApply: true\n---\nmine\n")
+    code, out = cursor_install(home, fakebin, "--agent", "cursor", "--project", cwd=project)
+    assert code != 0 and "okeanos.mdc" in out
+    assert (rules / "okeanos.mdc").read_text() == "---\nalwaysApply: true\n---\nmine\n"
+
+
+def test_cursor_project_dry_run_writes_nothing(home, fakebin, project):
+    code, out = cursor_install(home, fakebin, "--agent", "cursor", "--project", "--dry-run", cwd=project)
+    assert code == 0, out
+    assert "okeanos.mdc" in out and not (project / ".cursor").exists()
+
+
+@pytest.mark.parametrize("args", [["--project"], ["--agent", "codex", "--project"]])
+def test_project_is_only_for_cursor(home, fakebin, project, args):
+    code, out = cursor_install(home, fakebin, *args, cwd=project)
+    assert code != 0 and "cursor" in out
+    assert not (project / ".cursor").exists()
+
+
+def test_cursor_project_outside_a_repository_is_refused(home, fakebin, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    code, out = cursor_install(home, fakebin, "--agent", "cursor", "--project", cwd=outside)
+    assert code != 0 and "git" in out
+    assert list(outside.iterdir()) == []
+
+
+# ---------------------------------------------------------------------------
 # claude code: delegate to the marketplace, never touch its settings
 # ---------------------------------------------------------------------------
 
