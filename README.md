@@ -20,6 +20,8 @@ Ele não é um agente de thread principal (`"agent"` no settings) porque isso su
 - **G1**: aprovação antes de escrever código de produção.
 - **G2**: aprovação antes de push, PR, merge ou deploy.
 
+Ao abrir uma sessão num repo sem `CLAUDE.md`, um hook avisa o Okeanos e a primeira coisa que ele faz é rodar a skill [`onboard`](skills/engineering/onboard/SKILL.md): lê o projeto (README, manifests, CI, estrutura, testes, convenções) e cria um `CLAUDE.md` enxuto com o que o projeto é, comandos, estrutura, convenções e cuidados.
+
 Na primeira demanda de engenharia num repo sem `docs/agents/issue-tracker.md`, ele roda `setup-okeanos` (tracker padrão: markdown local em `.scratch/`).
 
 Para fugir do processo numa demanda, escreva **"sem okeanos"** ou **"modo livre"** na mensagem.
@@ -52,7 +54,7 @@ Requisitos: Docker, e um token em `.sandcastle/.env` (`claude setup-token`). O t
 
 Todas vivem em [`skills/`](skills/) e são do Okeanos: edite direto.
 
-- **Fluxo** (o Okeanos chama sozinho): `setup-okeanos`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `as-built`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
+- **Fluxo** (o Okeanos chama sozinho): `onboard`, `setup-okeanos`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `as-built`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
 - **Manuais** (só você chama): `ask-okeanos` (mapa das rotas), `teach`, `wait-what`, `to-questionnaire`, `improve-codebase-architecture`.
 
 ## Instalação

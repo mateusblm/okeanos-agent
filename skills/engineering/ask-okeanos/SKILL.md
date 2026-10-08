@@ -97,4 +97,7 @@ Off the main flow entirely.
 
 ## Precondition
 
+**`/onboard`**: runs first in any repo without a `CLAUDE.md`. It reads the project and writes that file (what it is, commands, structure, conventions, pitfalls), so every later session starts with the context.
+
+
 **`/setup-okeanos`**: run before your first engineering flow to configure the issue tracker, triage labels, and doc layout the other skills assume. Custom issue trackers also work.

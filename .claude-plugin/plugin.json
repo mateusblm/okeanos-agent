@@ -1,6 +1,6 @@
 {
   "name": "okeanos",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Fluxo contínuo de desenvolvimento: classifica cada demanda e conduz do alinhamento à entrega, com gates de aprovação e execução AFK em sandbox.",
   "author": {
     "name": "Mateus Burlamaqui Moreira"
@@ -24,6 +24,7 @@
     "./skills/engineering/implement",
     "./skills/engineering/implement-spec",
     "./skills/engineering/improve-codebase-architecture",
+    "./skills/engineering/onboard",
     "./skills/engineering/pr",
     "./skills/engineering/prototype",
     "./skills/engineering/research",
