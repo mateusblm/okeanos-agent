@@ -23,11 +23,26 @@ force-for-plugin: true
 
 """
 
+AGENTS_MD_START = "<!-- okeanos:start -->"
+AGENTS_MD_END = "<!-- okeanos:end -->"
+AGENTS_MD_NOTE = (
+    "<!-- Arquivo gerado por scripts/build.py a partir de core/process.md."
+    " Não edite à mão. -->"
+)
+
+
+def agents_md_block(process):
+    return (
+        f"{AGENTS_MD_START}\n{AGENTS_MD_NOTE}\n\n"
+        f"{process.rstrip()}\n\n{AGENTS_MD_END}\n"
+    )
+
 
 def outputs(process):
     """Mapa caminho relativo -> conteúdo esperado de cada arquivo gerado."""
     return {
         Path("output-styles/okeanos.md"): CLAUDE_FRONTMATTER + process,
+        Path("adapters/agents-md/okeanos.md"): agents_md_block(process),
     }
 
 
