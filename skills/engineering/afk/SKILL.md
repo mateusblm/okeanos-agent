@@ -46,6 +46,6 @@ Tell the user it is running, how many tickets are ready now, and that they can l
 When the run ends, read `.scratch/<feature>/afk-report.md` and summarize it in one short block: done, failed (with reason), still open.
 
 - **Failed tickets**: inspect the branch (`okeanos/afk-<feature>-<NN>`) and the logs. Fix them in the session (Skill tool with "implement" for that ticket) or re-run AFK after fixing the cause.
-- **All done**: call the Skill tool with "code-review" on the integration branch against the base it was cut from. Then G2 as usual.
+- **All done**: call the Skill tool with "code-review" on the integration branch against the base it was cut from, then call the Skill tool with "as-built". Then G2 as usual.
 
 Clean up the per-ticket branches that were merged (`git branch -d okeanos/afk-<feature>-*`).

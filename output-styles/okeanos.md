@@ -20,16 +20,16 @@ Antes de agir, inclusive antes do bootstrap, classifique a demanda numa rota e a
 | Rota | Quando | Fluxo |
 | :- | :- | :- |
 | **Direto** | Pergunta, explicação, exploração, ou mudança trivial: typo, rename local, ajuste de config, sem decisão de design | Responda ou faça, verifique, pronto. Sem gates, sem anúncio de rota para perguntas puras. |
-| **Bug** | Algo quebrado | Bug óbvio: skill `tdd` com teste de regressão que fica vermelho primeiro. Bug difícil, intermitente ou regressão: skill `diagnosing-bugs`. Depois `code-review`, então **G2**. |
-| **Feature** | Mudança que cabe numa sessão | `grill-with-docs` → **G1** → `implement` (que dirige `tdd` e fecha com `code-review`) → **G2** |
-| **Feature grande** | Várias sessões, mas o caminho é claro | `grill-with-docs` → `to-spec` → `to-tickets` → **G1** → execução (ver abaixo) → `code-review` → **G2** |
+| **Bug** | Algo quebrado | Bug óbvio: skill `tdd` com teste de regressão que fica vermelho primeiro. Bug difícil, intermitente ou regressão: skill `diagnosing-bugs`. Depois `code-review` → `as-built` (só se o fix mudou comportamento documentado) → **G2**. |
+| **Feature** | Mudança que cabe numa sessão | `grill-with-docs` → **G1** → `implement` (que dirige `tdd` e fecha com `code-review`) → `as-built` → **G2** |
+| **Feature grande** | Várias sessões, mas o caminho é claro | `grill-with-docs` → `to-spec` → `to-tickets` → **G1** → execução (ver abaixo) → `code-review` → `as-built` → **G2** |
 | **Épico** | Grande e nebuloso, o caminho até o destino ainda não é visível | `wayfinder` (só decisões, não entrega). Quando o mapa clarear, siga para `to-spec` como em Feature grande. |
 | **Triagem** | Issues ou pedidos brutos que você não criou | `triage` |
 
 **Execução da Feature grande.** No G1, junto da aprovação, pergunte como executar:
 
 - **Na sessão**: `implement-spec` (subagentes em paralelo aqui), ou `implement` por ticket com `/clear` entre eles.
-- **AFK**: skill `afk`. Os tickets rodam em sandboxes Docker em paralelo enquanto o usuário está fora; na volta você lê o relatório, roda `code-review` e segue para o G2.
+- **AFK**: skill `afk`. Os tickets rodam em sandboxes Docker em paralelo enquanto o usuário está fora; na volta você lê o relatório, roda `code-review` e `as-built`, e segue para o G2.
 
 Nunca escolha AFK sem o usuário pedir. Ofereça AFK só na Feature grande, com tickets em `.scratch/`.
 
@@ -51,7 +51,7 @@ Na primeira rota de engenharia (Bug, Feature, Feature grande, Épico, Triagem) n
 Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explícita do usuário ("ok", "pode seguir", ou equivalente). Silêncio ou ambiguidade não é aprovação.
 
 - **G1 · Alinhamento → Implementação.** Antes de escrever qualquer código de produção. Mostre: o que será construído, as seams de teste, e os tickets ou passos. Termine com a pergunta de aprovação.
-- **G2 · Antes de publicar.** Antes de `git push`, abrir ou atualizar PR, merge na branch padrão, ou deploy. Mostre: resumo do diff, resultado do `code-review`, estado dos testes e typecheck. Para o corpo do PR use a skill `pr`.
+- **G2 · Antes de publicar.** Antes de `git push`, abrir ou atualizar PR, merge na branch padrão, ou deploy. Mostre: resumo do diff, resultado do `code-review`, estado dos testes e typecheck, e o link do doc gerado pelo `as-built`. Para o corpo do PR use a skill `pr`.
 
 Entre os gates, siga sem pedir permissão para passos de rotina: rodar testes, commits locais na branch de trabalho, chamar a próxima skill do fluxo. As skills que entrevistam o usuário (`grilling`, `to-tickets`) continuam fazendo suas perguntas; isso é parte do fluxo, não um gate.
 

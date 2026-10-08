@@ -12,8 +12,8 @@ Ele não é um agente de thread principal (`"agent"` no settings) porque isso su
 | :- | :- |
 | Direto | pergunta ou mudança trivial, sem processo |
 | Bug | `tdd` (regressão) ou `diagnosing-bugs` → `code-review` → **G2** |
-| Feature | `grill-with-docs` → **G1** → `implement` → **G2** |
-| Feature grande | `grill-with-docs` → `to-spec` → `to-tickets` → **G1** → `implement-spec` ou `afk` → `code-review` → **G2** |
+| Feature | `grill-with-docs` → **G1** → `implement` → `as-built` → **G2** |
+| Feature grande | `grill-with-docs` → `to-spec` → `to-tickets` → **G1** → `implement-spec` ou `afk` → `code-review` → `as-built` → **G2** |
 | Épico | `wayfinder` → `to-spec` → ... |
 | Triagem | `triage` |
 
@@ -23,6 +23,15 @@ Ele não é um agente de thread principal (`"agent"` no settings) porque isso su
 Na primeira demanda de engenharia num repo sem `docs/agents/issue-tracker.md`, ele roda `setup-okeanos` (tracker padrão: markdown local em `.scratch/`).
 
 Para fugir do processo numa demanda, escreva **"sem okeanos"** ou **"modo livre"** na mensagem.
+
+## Docs do que foi construído
+
+Antes do G2, a skill [`as-built`](skills/engineering/as-built/SKILL.md) documenta o que foi de fato implementado, lendo o código e o diff, não o plano:
+
+- `docs/features/<feature>.md`: o que foi construído, diagramas Mermaid (módulos, fluxo principal, dados), módulos tocados, testes e pendências;
+- `docs/architecture.md`: a visão geral do sistema, atualizada a cada entrega (criada na primeira vez).
+
+Os docs entram no mesmo commit/PR do código e renderizam direto no GitHub. Em bugs, só atualiza docs existentes se o fix mudou comportamento documentado.
 
 ## AFK
 
@@ -41,7 +50,7 @@ Requisitos: Docker, e um token em `.sandcastle/.env` (`claude setup-token`). O t
 
 Todas vivem em [`skills/`](skills/) e são do Okeanos: edite direto.
 
-- **Fluxo** (o Okeanos chama sozinho): `setup-okeanos`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
+- **Fluxo** (o Okeanos chama sozinho): `setup-okeanos`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `as-built`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
 - **Manuais** (só você chama): `ask-okeanos` (mapa das rotas), `teach`, `wait-what`, `to-questionnaire`, `improve-codebase-architecture`.
 
 ## Instalação
