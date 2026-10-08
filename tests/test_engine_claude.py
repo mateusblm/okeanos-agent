@@ -674,3 +674,39 @@ def test_agent_editing_okeanos_state_is_denied(repo, tool, tool_input):
     path = repo / ".git" / "okeanos" / "approvals.json"
     d, reason = decision(edit(repo, tool, {"file_path": str(path), **tool_input})[1])
     assert d == "deny" and "humano" in reason
+
+
+# ---------------------------------------------------------------------------
+# git hooks belong to the human too: the agent can't remove or bypass them
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("command", [
+    "okeanos githooks --uninstall",
+    "bin/okeanos githooks --uninstall",
+    "rm .git/hooks/pre-commit",
+    "chmod -x .git/hooks/pre-push",
+    "echo exit 0 > .git/hooks/pre-commit",
+    "git config core.hooksPath /dev/null",
+    "git -c core.hooksPath=/dev/null commit -m x",
+])
+def test_agent_cannot_remove_or_bypass_git_hooks(repo, command):
+    code, out = bash(repo, command)
+    action, reason = decision(out)
+    assert action == "deny", command
+    assert "humano" in reason
+
+
+@pytest.mark.parametrize("command", [
+    "okeanos githooks",
+    "cat .git/hooks/pre-commit",
+    "ls .git/hooks",
+    "git config --get core.hooksPath",
+])
+def test_reading_or_installing_git_hooks_is_allowed(repo, command):
+    assert bash(repo, command) == (0, None), command
+
+
+def test_agent_cannot_edit_git_hooks_with_the_editor(repo):
+    code, out = edit(repo, "Write", {"file_path": str(repo / ".git" / "hooks" / "pre-commit"), "content": "exit 0\n"})
+    action, _ = decision(out)
+    assert action == "deny"
