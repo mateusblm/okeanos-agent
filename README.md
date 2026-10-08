@@ -47,7 +47,7 @@ Todas vivem em [`skills/`](skills/) e são do Okeanos: edite direto.
 ## Instalação
 
 ```bash
-claude plugin marketplace add /home/mateus/orca/projects/bmk-agent
+claude plugin marketplace add /home/mateus/orca/projects/okeanos-agent
 claude plugin install okeanos@okeanos
 ```
 
