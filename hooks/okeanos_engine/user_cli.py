@@ -12,7 +12,7 @@ import shutil
 import sys
 import time
 
-from . import approvals
+from . import approvals, installer
 from .cli import metrics_summary
 from .plumbing import git, repo_root
 
@@ -141,6 +141,10 @@ def cmd_githooks(args):
     return 2
 
 
+def cmd_install(args):
+    return installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run)
+
+
 def cmd_doctor(args):
     yes = lambda ok: "sim" if ok else "não"  # noqa: E731
     print(f"plugin: {plugin_root()}")
@@ -176,6 +180,16 @@ def parser():
     m.add_argument("dias", nargs="?", type=int, default=30)
     m.set_defaults(func=cmd_metrics)
     sub.add_parser("githooks", help="instala git hooks no repositório (em breve)").set_defaults(func=cmd_githooks)
+    i = sub.add_parser("install", help="instala o Okeanos nos agentes encontrados (Claude Code, Codex)",
+                       description="Detecta os agentes no PATH e instala em cada um: Claude Code pelo marketplace; "
+                                   "Codex com skills em ~/.agents/skills, o bloco do processo no AGENTS.md global e os "
+                                   "hooks no hooks.json do usuário. Também liga a CLI em ~/.local/bin. Idempotente; "
+                                   "edita só o que é do Okeanos e guarda <arquivo>.okeanos-bak antes de mudar.")
+    i.add_argument("--agent", action="append", metavar="AGENTE",
+                   help="só este agente (repita ou separe por vírgula): claude, codex")
+    i.add_argument("--uninstall", action="store_true", help="remove só o que o Okeanos instalou")
+    i.add_argument("--dry-run", action="store_true", help="mostra o que faria, sem mudar nada")
+    i.set_defaults(func=cmd_install)
     sub.add_parser("doctor", help="mostra onde o Okeanos está e o que encontra aqui").set_defaults(func=cmd_doctor)
     return p
 

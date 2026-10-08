@@ -21,6 +21,7 @@ CODEX_HOOKS = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", 
 
 FAKE_CLAUDE = """#!/bin/sh
 echo "$*" >> "$FAKE_STATE/log"
+echo "$HOME" >> "$FAKE_STATE/home"
 case "$*" in
   "plugin marketplace list --json") cat "$FAKE_STATE/mkts" 2>/dev/null || echo '[]' ;;
   "plugin list --json") cat "$FAKE_STATE/plugins" 2>/dev/null || echo '[]' ;;
@@ -245,6 +246,14 @@ def test_claude_install_uses_the_marketplace(home, fakebin):
     assert f"plugin marketplace add {ROOT}" in log
     assert "plugin install okeanos@okeanos" in log
     assert not (home / ".claude").exists()
+
+
+def test_claude_runs_with_the_redirected_home(home, fakebin):
+    add_agent(fakebin, "claude")
+    install(home, fakebin)
+    install(home, fakebin, "--uninstall")
+    seen = set((fakebin.parent / "state" / "home").read_text().splitlines())
+    assert seen == {str(home)}
 
 
 def test_claude_already_installed_is_left_alone(home, fakebin):
