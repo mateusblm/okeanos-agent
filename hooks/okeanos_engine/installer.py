@@ -9,8 +9,10 @@ the marked block in AGENTS.md, hook handlers whose command runs this engine with
 <file>.okeanos-bak before it changes.
 
 Paths: OKEANOS_HOME_DIR replaces the home directory (tests), also as HOME for the
-agent CLIs the installer runs. Codex's directory is
-$CODEX_HOME or ~/.codex (CODEX_HOME is ignored when OKEANOS_HOME_DIR is set).
+agent CLIs the installer runs. Codex's directory is $CODEX_HOME or ~/.codex, Copilot's
+is $COPILOT_HOME or ~/.copilot (both variables are ignored when OKEANOS_HOME_DIR is set).
+Codex and Copilot share the skill links in ~/.agents/skills: uninstalling one agent keeps
+them while the other still has Okeanos.
 Claude Code is installed through its own marketplace commands; its settings are
 never touched.
 """
@@ -27,8 +29,8 @@ try:
 except ImportError:  # Python < 3.11: config.toml can't be checked, and we never write it
     tomllib = None
 
-SUPPORTED = ("claude", "codex")
-LATER = ("copilot", "cursor")
+SUPPORTED = ("claude", "codex", "copilot")
+LATER = ("cursor",)
 BLOCK_START = "<!-- okeanos:start -->"
 BLOCK_END = "<!-- okeanos:end -->"
 BACKUP = ".okeanos-bak"
@@ -65,6 +67,16 @@ def codex_dir(home):
     if not os.environ.get("OKEANOS_HOME_DIR") and os.environ.get("CODEX_HOME"):
         return os.environ["CODEX_HOME"]
     return os.path.join(home, ".codex")
+
+
+def copilot_dir(home):
+    if not os.environ.get("OKEANOS_HOME_DIR") and os.environ.get("COPILOT_HOME"):
+        return os.environ["COPILOT_HOME"]
+    return os.path.join(home, ".copilot")
+
+
+def shared_skills_dir(home):
+    return os.path.join(home, ".agents", "skills")
 
 
 def skill_dirs(root):
@@ -268,6 +280,32 @@ def skill_actions(root, skills_dir, uninstall, notes):
     return actions
 
 
+def block_actions(root, md_path, uninstall):
+    """The process block between the okeanos markers in an instructions file."""
+    md = read(md_path)
+    if uninstall:
+        if md is None or BLOCK_START not in md:
+            return []
+        rest = without_block(md)
+        return [Write(md_path, rest, "remove bloco do processo") if rest
+                else Remove(md_path, f"remove {os.path.basename(md_path)} (só tinha o bloco do Okeanos)")]
+    with open(os.path.join(root, "adapters", "agents-md", "okeanos.md")) as f:
+        block = f.read()
+    new_md = with_block(md or "", block)
+    return [Write(md_path, new_md, "bloco do processo")] if new_md != md else []
+
+
+def shared_skill_actions(agent, root, home, uninstall, notes):
+    """The ~/.agents/skills links, read by Codex and Copilot alike: on uninstall they stay while
+    another of those agents still has Okeanos."""
+    if uninstall:
+        others = [a for a, installed in SKILL_USERS.items() if a != agent and installed(root, home)]
+        if others:
+            notes.append(f"skills em {shared_skills_dir(home)} mantidas: ainda usadas pelo {', '.join(others)}.")
+            return []
+    return skill_actions(root, shared_skills_dir(home), uninstall, notes)
+
+
 def plan_codex(root, home, uninstall):
     notes, actions = [], []
     cdir = codex_dir(home)
@@ -284,29 +322,143 @@ def plan_codex(root, home, uninstall):
         actions.append(Write(hooks_path, json.dumps(new, indent=2, ensure_ascii=False) + "\n",
                              "remove hooks" if uninstall else "hooks"))
 
-    md_path = os.path.join(cdir, "AGENTS.md")
-    md = read(md_path)
-    if uninstall:
-        if md is not None and BLOCK_START in md:
-            rest = without_block(md)
-            actions.append(Write(md_path, rest, "remove bloco do processo") if rest
-                           else Remove(md_path, "remove AGENTS.md (só tinha o bloco do Okeanos)"))
-    else:
-        with open(os.path.join(root, "adapters", "agents-md", "okeanos.md")) as f:
-            block = f.read()
-        new_md = with_block(md or "", block)
-        if new_md != md:
-            actions.append(Write(md_path, new_md, "bloco do processo"))
+    actions += block_actions(root, os.path.join(cdir, "AGENTS.md"), uninstall)
+    if not uninstall:
         override = read(os.path.join(cdir, "AGENTS.override.md"))
         if override and override.strip():
             notes.append(f"aviso: {os.path.join(cdir, 'AGENTS.override.md')} existe e o Codex lê ele no lugar do "
                          "AGENTS.md global; o processo do Okeanos não será carregado enquanto ele existir.")
 
-    actions += skill_actions(root, os.path.join(home, ".agents", "skills"), uninstall, notes)
+    actions += shared_skill_actions("codex", root, home, uninstall, notes)
     if not uninstall and any(isinstance(a, Write) and a.path == hooks_path for a in actions):
         notes.append("próximo passo: abra o Codex e rode /hooks para revisar e confiar nos hooks do Okeanos; "
                      "o Codex não roda hooks novos ou alterados antes disso.")
     return actions, notes
+
+
+def codex_installed(root, home):
+    cdir = codex_dir(home)
+    try:
+        hooks = load_hooks_json(os.path.join(cdir, "hooks.json"))
+    except Abort:
+        return True  # can't tell: keep what it may use
+    md = read(os.path.join(cdir, "AGENTS.md")) or ""
+    return BLOCK_START in md or strip_owned(hooks, "codex") != hooks
+
+
+# ---------------------------------------------------------------------------
+# Copilot (CLI): user hooks file, user instructions, shared skills
+# ---------------------------------------------------------------------------
+
+COPILOT_HOOKS_FILE = "okeanos.json"
+COPILOT_EDIT_TOOLS = "edit|create|write|str_replace_editor|apply_patch"
+
+
+def copilot_hooks(root):
+    """camelCase events (the CLI's native `version: 1` format), one entry per handler."""
+    run = f'"{root}/hooks/run" --agent copilot'
+    onboard = f'"{root}/hooks/onboard-check.sh" --agent copilot'
+
+    def h(command, timeout, matcher=None):
+        out = {"type": "command", "bash": command, "timeoutSec": timeout}
+        if matcher:
+            out["matcher"] = matcher
+        return out
+
+    return {
+        "sessionStart": [h(onboard, 10), h(f"{run} session-start", 10)],
+        "preToolUse": [h(f"{run} pre-tool", 30, "bash|powershell|" + COPILOT_EDIT_TOOLS)],
+        "postToolUse": [h(f"{run} post-tool", 120, COPILOT_EDIT_TOOLS)],
+        "agentStop": [h(f"{run} stop", 1800)],
+    }
+
+
+def load_copilot_hooks(path):
+    """The parsed hooks file ({} when missing). Abort unless it is Copilot's `version: 1` shape."""
+    text = read(path)
+    if text is None or not text.strip():
+        return {}
+    try:
+        data = json.loads(text)
+    except ValueError as e:
+        raise Abort(f"{path} não é JSON válido ({e}). Nada foi alterado; corrija o arquivo e rode de novo.")
+    hooks = data.get("hooks", {}) if isinstance(data, dict) else None
+    ok = (isinstance(hooks, dict) and data.get("version", 1) == 1
+          and all(isinstance(entries, list) and all(isinstance(e, dict) for e in entries) for entries in hooks.values()))
+    if not ok:
+        raise Abort(f"{path} não tem o formato de hooks do Copilot ({{\"version\": 1, \"hooks\": {{<evento>: [...]}}}}). "
+                    "Nada foi alterado; corrija o arquivo e rode de novo.")
+    return data
+
+
+def strip_owned_flat(data, agent):
+    """A copy of a Copilot hooks config without this agent's Okeanos entries (and the events they emptied)."""
+    data = json.loads(json.dumps(data))
+    owned = owned_command(agent)
+    hooks = data.get("hooks", {})
+    for event in list(hooks):
+        kept = [e for e in hooks[event] if not owned.search(str(e.get("bash", "")) + " " + str(e.get("command", "")))]
+        if kept or not hooks[event]:
+            hooks[event] = kept
+        else:
+            del hooks[event]
+    return data
+
+
+def copilot_installed(root, home):
+    cdir = copilot_dir(home)
+    try:
+        hooks = load_copilot_hooks(os.path.join(cdir, "hooks", COPILOT_HOOKS_FILE))
+    except Abort:
+        return True
+    md = read(os.path.join(cdir, "copilot-instructions.md")) or ""
+    return BLOCK_START in md or strip_owned_flat(hooks, "copilot") != hooks
+
+
+def check_copilot_settings(path, notes):
+    """Never written; only read for disableAllHooks."""
+    text = read(path)
+    if not text:
+        return
+    try:
+        settings = json.loads(text)
+    except ValueError:
+        notes.append(f"aviso: não consegui ler {path}; confira se ele não tem disableAllHooks: true.")
+        return
+    if isinstance(settings, dict) and settings.get("disableAllHooks") is True:
+        notes.append(f"aviso: {path} tem disableAllHooks: true; as proteções do Okeanos não vão rodar no Copilot.")
+
+
+def plan_copilot(root, home, uninstall):
+    notes, actions = [], []
+    cdir = copilot_dir(home)
+    check_copilot_settings(os.path.join(cdir, "settings.json"), notes)
+
+    hooks_path = os.path.join(cdir, "hooks", COPILOT_HOOKS_FILE)
+    current = load_copilot_hooks(hooks_path)
+    new = strip_owned_flat(current, "copilot")
+    if uninstall:
+        if current and new != current:
+            leftover = {k: v for k, v in new.items() if k not in ("version", "hooks")} or any(new.get("hooks", {}).values())
+            actions.append(Write(hooks_path, json.dumps(new, indent=2, ensure_ascii=False) + "\n", "remove hooks")
+                           if leftover else Remove(hooks_path, "remove hooks"))
+    else:
+        new.setdefault("version", 1)
+        new.setdefault("hooks", {})
+        for event, entries in copilot_hooks(root).items():
+            new["hooks"].setdefault(event, []).extend(entries)
+        if new != current:
+            actions.append(Write(hooks_path, json.dumps(new, indent=2, ensure_ascii=False) + "\n", "hooks"))
+
+    actions += block_actions(root, os.path.join(cdir, "copilot-instructions.md"), uninstall)
+    actions += shared_skill_actions("copilot", root, home, uninstall, notes)
+    if not uninstall and actions:
+        notes.append("próximo passo: reinicie o Copilot CLI (hooks e instruções são lidos quando ele inicia). "
+                     "Os hooks de usuário não valem no Copilot na nuvem, que só lê .github/hooks do repositório.")
+    return actions, notes
+
+
+SKILL_USERS = {"codex": codex_installed, "copilot": copilot_installed}
 
 
 # ---------------------------------------------------------------------------
@@ -347,7 +499,36 @@ def plan_claude(root, home, uninstall):
     return actions, notes
 
 
-PLANNERS = {"claude": plan_claude, "codex": plan_codex}
+PLANNERS = {"claude": plan_claude, "codex": plan_codex, "copilot": plan_copilot}
+FILE_AGENTS = ("codex", "copilot")  # installed by writing files: uninstall looks for them even off the PATH
+
+
+def status(root=None, home=None):
+    """{agent: [installed pieces]} for the agents installed by writing files (for `okeanos doctor`)."""
+    root, home = root or plugin_root(), home or home_dir()
+    skills = os.path.join(shared_skills_dir(home), "")
+    linked = os.path.isdir(skills) and any(
+        os.path.islink(os.path.join(skills, n)) and os.readlink(os.path.join(skills, n)).startswith(os.path.join(root, "skills"))
+        for n in os.listdir(skills))
+    out = {}
+    for agent, hooks_path, load, strip, md_path in (
+            ("codex", os.path.join(codex_dir(home), "hooks.json"), load_hooks_json, strip_owned,
+             os.path.join(codex_dir(home), "AGENTS.md")),
+            ("copilot", os.path.join(copilot_dir(home), "hooks", COPILOT_HOOKS_FILE), load_copilot_hooks,
+             strip_owned_flat, os.path.join(copilot_dir(home), "copilot-instructions.md"))):
+        pieces = []
+        try:
+            data = load(hooks_path)
+            if strip(data, agent) != data:
+                pieces.append("hooks")
+        except Abort:
+            pieces.append("hooks ilegíveis")
+        if BLOCK_START in (read(md_path) or ""):
+            pieces.append("instruções")
+        if pieces and linked:
+            pieces.append("skills")
+        out[agent] = pieces
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -395,9 +576,9 @@ def run(agents_arg, uninstall=False, dry_run=False, out=print):
     out(f"{prefix}Okeanos {'desinstalação' if uninstall else 'instalação'} a partir de {root}")
     if not names:
         found = {a: shutil.which(a) for a in SUPPORTED}
-        names = [a for a in SUPPORTED if found[a]] if not uninstall else [a for a in SUPPORTED if found[a] or a == "codex"]
+        names = [a for a in SUPPORTED if found[a] or (uninstall and a in FILE_AGENTS)]
         for a in SUPPORTED:
-            if not found[a] and not (uninstall and a == "codex"):
+            if not found[a] and not (uninstall and a in FILE_AGENTS):
                 out(f"{a}: não encontrado no PATH")
         if not names:
             out("Nenhum agente suportado encontrado no PATH (" + ", ".join(SUPPORTED) + "). Nada foi alterado.")

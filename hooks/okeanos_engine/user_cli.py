@@ -171,6 +171,9 @@ def cmd_doctor(args):
     for name in AGENT_CLIS:
         found = shutil.which(name)
         print(f"  {name}: {found or 'não encontrado'}")
+    print(f"instalação (em {installer.home_dir()}):")
+    for agent, pieces in installer.status().items():
+        print(f"  {agent}: " + (f"instalado ({', '.join(pieces)})" if pieces else "não instalado"))
     return 0
 
 
@@ -199,13 +202,15 @@ def parser():
     h.add_argument("hook", choices=githooks.HOOKS)
     h.add_argument("rest", nargs=argparse.REMAINDER)
     h.set_defaults(func=cmd_githook)
-    i = sub.add_parser("install", help="instala o Okeanos nos agentes encontrados (Claude Code, Codex)",
+    i = sub.add_parser("install", help="instala o Okeanos nos agentes encontrados (Claude Code, Codex, Copilot)",
                        description="Detecta os agentes no PATH e instala em cada um: Claude Code pelo marketplace; "
                                    "Codex com skills em ~/.agents/skills, o bloco do processo no AGENTS.md global e os "
-                                   "hooks no hooks.json do usuário. Também liga a CLI em ~/.local/bin. Idempotente; "
-                                   "edita só o que é do Okeanos e guarda <arquivo>.okeanos-bak antes de mudar.")
+                                   "hooks no hooks.json do usuário; Copilot com as mesmas skills, o bloco em "
+                                   "~/.copilot/copilot-instructions.md e os hooks em ~/.copilot/hooks/okeanos.json. "
+                                   "Também liga a CLI em ~/.local/bin. Idempotente; edita só o que é do Okeanos e "
+                                   "guarda <arquivo>.okeanos-bak antes de mudar.")
     i.add_argument("--agent", action="append", metavar="AGENTE",
-                   help="só este agente (repita ou separe por vírgula): claude, codex")
+                   help="só este agente (repita ou separe por vírgula): claude, codex, copilot")
     i.add_argument("--uninstall", action="store_true", help="remove só o que o Okeanos instalou")
     i.add_argument("--dry-run", action="store_true", help="mostra o que faria, sem mudar nada")
     i.set_defaults(func=cmd_install)
