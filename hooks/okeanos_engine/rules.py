@@ -365,7 +365,7 @@ def resolve_asks(asks, ctx):
         return Decision()
     wanted = list(dict.fromkeys(t for targets, _ in pending for t in targets if t not in live))
     text = "\n".join(reason for _, reason in pending)
-    return Decision(ASK, text + ("\n" + approvals.how_to(wanted) if wanted else ""))
+    return Decision(ASK, text + ("\n" + approvals.how_to(wanted) if wanted else ""), targets=wanted)
 
 
 LABELS = {SHELL: "pre-bash", EDIT: "pre-edit", WRITE: "pre-edit", MULTI_EDIT: "pre-edit"}

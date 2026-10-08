@@ -1,8 +1,9 @@
 """The user's command line: `okeanos <subcommand>` (entry script: bin/okeanos).
 
 Unlike the hooks, this is run by the human. `aprovar` and `revogar` change what the
-agent may do, so they refuse unless stdin and stdout are a terminal: an agent's shell
-has neither. The rules also deny any agent command that runs them.
+agent may do, so they refuse unless stdin and stdout are a terminal (an agent's shell
+has neither) and refuse inside an agent session, recognised by the variables the agents
+set in their tool shells. The rules also deny any agent command that runs them.
 """
 
 import argparse
@@ -16,6 +17,12 @@ from .cli import metrics_summary
 from .plumbing import git, repo_root
 
 AGENT_CLIS = ("claude", "codex", "copilot", "cursor-agent")
+# Set by the agents in the shell where they run tools (Codex 0.161: CODEX_THREAD_ID, CODEX_SESSION_ID,
+# CODEX_CI, plus CODEX_SANDBOX* when sandboxed; Claude Code: CLAUDECODE).
+AGENT_SESSION_VARS = ("CLAUDECODE", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_CI", "CODEX_SANDBOX",
+                      "CODEX_SANDBOX_NETWORK_DISABLED")
+IN_AGENT = ("okeanos {sub}: recusado, `{var}` mostra que este shell é de uma sessão de agente. "
+            "Aprovações são do humano: rode `okeanos {sub} ...` num terminal seu, fora do agente.")
 TTY_ONLY = ("okeanos {sub}: recusado, este comando precisa de um terminal interativo. "
             "Aprovações são do humano: rode `okeanos {sub} ...` no seu próprio terminal, não pelo agente.")
 
@@ -29,6 +36,16 @@ def interactive():
         return sys.stdin.isatty() and sys.stdout.isatty()
     except Exception:  # noqa: BLE001
         return False
+
+
+def human_only(sub):
+    """None if a human may run `sub` here; else the refusal message."""
+    for var in AGENT_SESSION_VARS:
+        if os.environ.get(var):
+            return IN_AGENT.format(sub=sub, var=var)
+    if not interactive():
+        return TTY_ONLY.format(sub=sub)
+    return None
 
 
 def clock(ts):
@@ -65,8 +82,9 @@ def normalize_target(root, raw):
 
 
 def cmd_aprovar(args):
-    if not interactive():
-        print(TTY_ONLY.format(sub="aprovar"), file=sys.stderr)
+    refusal = human_only("aprovar")
+    if refusal:
+        print(refusal, file=sys.stderr)
         return 1
     root = current_repo()
     if not root:
@@ -98,8 +116,9 @@ def cmd_aprovacoes(args):
 
 
 def cmd_revogar(args):
-    if not interactive():
-        print(TTY_ONLY.format(sub="revogar"), file=sys.stderr)
+    refusal = human_only("revogar")
+    if refusal:
+        print(refusal, file=sys.stderr)
         return 1
     root = current_repo()
     if not root:

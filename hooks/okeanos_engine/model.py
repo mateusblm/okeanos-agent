@@ -58,11 +58,13 @@ class Decision:
     reason:  text for the agent (and the user, in approval prompts)
     context: prompt/session_start: text to add to the agent's context
     message: text shown to the user only, never blocks
+    targets: ask: what `okeanos aprovar` would release; the reason then ends with that command
     """
     action: str = ALLOW
     reason: str = ""
     context: str = ""
     message: str = ""
+    targets: List[str] = field(default_factory=list)
 
     @property
     def silent(self):

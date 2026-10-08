@@ -8,9 +8,9 @@ import os
 import sys
 import time
 
-from . import rules
+from . import approvals, rules
 from .dialects import DEFAULT, DIALECTS
-from .model import Decision
+from .model import ASK, BLOCK, DENY, Decision
 from .plumbing import Context, metrics_path, repo_root
 
 
@@ -31,14 +31,43 @@ def split_agent(argv):
     return agent, rest
 
 
+def combine(decisions):
+    """One Decision for a tool call that touched several files: a deny wins, asks merge into one
+    reason with a single `okeanos aprovar` line, blocks and notes are joined."""
+    decisions = [d for d in decisions if not d.silent]
+    if not decisions:
+        return Decision()
+    if len(decisions) == 1:
+        return decisions[0]
+    for d in decisions:
+        if d.action == DENY:
+            return d
+    asks = [d for d in decisions if d.action == ASK]
+    join = lambda parts: "\n".join(dict.fromkeys(p for p in parts if p))  # noqa: E731
+    context, message = join(d.context for d in decisions), join(d.message for d in decisions)
+    if asks:
+        targets = list(dict.fromkeys(t for d in asks for t in d.targets))
+        reasons = [d.reason.rsplit("\n", 1)[0] if d.targets else d.reason for d in asks]
+        reason = join(reasons) + ("\n" + approvals.how_to(targets) if targets else "")
+        return Decision(ASK, reason, context, message, targets)
+    blocks = [d.reason for d in decisions if d.action == BLOCK]
+    if blocks:
+        return Decision(BLOCK, "\n\n".join(blocks), context, message)
+    return Decision(context=context, message=message)
+
+
 def handle(dialect, hook, data):
-    """One hook call: payload -> Event -> Decision -> (stdout, exit code)."""
+    """One hook call: payload -> Event(s) -> Decision -> (stdout, exit code)."""
     event, decision = None, Decision()
     try:
-        event = dialect.parse(hook, data)
-        if event is not None:
-            root = repo_root(event.cwd or os.getcwd())
-            decision = rules.decide(event, Context(event, root))
+        parsed = dialect.parse(hook, data)
+        events = parsed if isinstance(parsed, list) else ([parsed] if parsed is not None else [])
+        decisions = []
+        for e in events:
+            root = repo_root(e.cwd or os.getcwd())
+            decisions.append(rules.decide(e, Context(e, root)))
+        event = events[0] if events else None
+        decision = combine(decisions)
     except Exception:  # noqa: BLE001
         event, decision = None, Decision()  # a broken rule must never block work
     try:
