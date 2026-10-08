@@ -30,6 +30,7 @@ Break the work into **tracer bullet** tickets.
 - Each slice cuts a narrow but COMPLETE path through every layer (schema, API, UI, tests): vertical, NOT a horizontal slice of one layer
 - A completed slice is demoable or verifiable on its own
 - Each slice is sized to fit in a single fresh context window
+- Each slice changes roughly 200 to 400 lines (tests included, lockfiles and docs excluded). Smaller changes get reviewed properly and fail less; agent PRs that were rejected were measurably larger. Split anything bigger; the Okeanos stop hook warns when a session goes past the repo's `maxChangedLines`
 - Any prefactoring should be done first
 
 </vertical-slice-rules>

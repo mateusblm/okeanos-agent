@@ -1,0 +1,12 @@
+{
+  "onEdit": [
+    { "name": "python", "cmd": "python3 -m py_compile {file}", "ext": [".py"] },
+    { "name": "shell", "cmd": "sh -n {file}", "ext": [".sh"] },
+    { "name": "json", "cmd": "python3 -m json.tool {file} > /dev/null", "ext": [".json"] }
+  ],
+  "onDone": [
+    { "name": "plugin", "cmd": "claude plugin validate .claude-plugin/plugin.json" },
+    { "name": "marketplace", "cmd": "claude plugin validate ." }
+  ],
+  "maxChangedLines": 400
+}

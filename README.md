@@ -52,6 +52,32 @@ Na primeira demanda de engenharia num repo sem `docs/agents/issue-tracker.md`, e
 
 Para fugir do processo numa demanda, escreva **"sem okeanos"** ou **"modo livre"** na mensagem.
 
+## Verificações automáticas (hooks)
+
+As regras que mais importam não dependem do modelo lembrar delas: o plugin as aplica com hooks (`hooks/okeanos.py`, só Python 3 da biblioteca padrão; sem `python3` na máquina, os hooks são pulados).
+
+| Quando | O que acontece |
+| :- | :- |
+| Cada edição | Roda format e lint do arquivo editado (`onEdit`); erro volta para o agente na hora. |
+| Edição em teste já commitado | Alterar, apagar ou desligar (`skip`) asserções e casos de teste pede a sua aprovação; adicionar testes e mexer em imports ou helpers é livre. Testes commitados são o contrato. |
+| Agente vai encerrar | Se o código mudou, roda typecheck, testes e build (`onDone`). Falhou: o agente não encerra e corrige; depois de 3 tentativas, o problema vem para você. Testes alterados e diffs acima de `maxChangedLines` geram aviso. |
+| `git push`, `gh pr create/merge`, merge na branch padrão | Pede a sua confirmação: é o G2, garantido mesmo em modo automático. |
+| `--no-verify`, force push, `rm -r` fora do repo | Bloqueado. |
+| `git commit` | Procura segredos (chaves AWS, GitHub, Stripe, Anthropic, OpenAI, chaves privadas, `.env`) e bloqueia o commit se achar. |
+| `npm/pnpm/yarn/bun add`, `pip/uv/poetry add`, `cargo add` | Pacote que não existe é bloqueado (nome alucinado); pacote com menos de 30 dias, pouco baixado ou a uma letra de um popular pede confirmação. |
+
+Os comandos de cada projeto ficam em `docs/agents/checks.json`, que a skill `onboard` cria na primeira sessão:
+
+```json
+{
+  "onEdit": [{ "name": "lint", "cmd": "npx eslint {file}", "ext": [".ts", ".tsx"] }],
+  "onDone": [{ "name": "typecheck", "cmd": "npm run typecheck" }, { "name": "test", "cmd": "npm test" }],
+  "maxChangedLines": 400
+}
+```
+
+O porquê de cada regra está no relatório de pesquisa que originou esta versão: agentes reescrevem testes para passar, inventam pacotes, vazam segredos e entregam diffs grandes demais para revisar; instruções não bastam, hooks sim.
+
 ## Docs do que foi construído
 
 Antes do G2, a skill [`as-built`](skills/engineering/as-built/SKILL.md) documenta o que foi de fato implementado, lendo o código e o diff, não o plano:

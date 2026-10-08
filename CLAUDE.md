@@ -1,7 +1,8 @@
 Este repo é o plugin **Okeanos** do Claude Code. Veja `README.md`.
 
 - O processo vive em `output-styles/okeanos.md`. Mudanças de rota, gates ou regras vão lá.
-- `hooks/onboard-check.sh` (SessionStart) avisa quando o repo não tem `CLAUDE.md`; a skill `onboard` cria o arquivo.
+- `hooks/onboard-check.sh` (SessionStart) avisa quando o repo não tem `CLAUDE.md` ou `docs/agents/checks.json`; a skill `onboard` cria os dois.
+- `hooks/okeanos.py` concentra os hooks determinísticos (pre-bash, pre-edit, post-edit, stop), chamados via `hooks/run`. Só biblioteca padrão do Python; qualquer erro interno vira "permitir", nunca bloqueio. Teste mudanças nele com entradas JSON simuladas antes de commitar.
 - As skills em `skills/` são do Okeanos e se editam direto. Ao adicionar, remover ou renomear uma skill, atualize o array `skills` em `.claude-plugin/plugin.json`, a lista em `README.md` e o mapa em `skills/engineering/ask-okeanos/SKILL.md`.
 - Skills que o Okeanos chama sozinho não têm `disable-model-invocation`. Skills manuais têm `disable-model-invocation: true`.
 - Dependências entre skills: escreva `call the Skill tool with "<nome>"`, nunca links entre pastas de skills.

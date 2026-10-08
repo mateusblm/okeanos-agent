@@ -1,81 +1,99 @@
 ---
 name: onboard
-description: Read a project that has no CLAUDE.md and write one, so every later session starts with the project's context. Use at the start of a session in a repo without CLAUDE.md, or when the user asks to create or refresh the project's context file.
+description: Read a project that lacks Okeanos context and write it - a short, human-approved CLAUDE.md and the docs/agents/checks.json the Okeanos hooks run. Use at the start of a session in a repo without CLAUDE.md or checks.json, or when the user asks to create or refresh the project's context file.
 ---
 
 # Onboard
 
-A repo without `CLAUDE.md` makes every session rediscover what the project is. Read the project once and write that file: what it is, how to run it, where things live, and what to be careful with. Do this before anything else the user asked, then carry on with their request.
+Two files give every later session what it needs, and nothing more:
 
-Write in the language the user speaks in the session.
+- **`CLAUDE.md`**: the few things an agent can't cheaply rediscover: the commands, the non-obvious conventions, and the traps. Short and approved by the user.
+- **`docs/agents/checks.json`**: the commands the Okeanos hooks run deterministically: format and lint after each edit, typecheck, tests and build before the agent may stop.
+
+Keep `CLAUDE.md` lean on purpose. In a 2026 study, LLM-generated context files with repository overviews didn't improve agent results and raised cost by over 20%; the helpful ones were short and written or reviewed by humans. An agent can list directories itself; it can't guess a project's traps.
+
+Write in the language the user speaks in the session. Do this before anything else the user asked, then carry on with their request.
 
 ## When to skip
 
-- Not inside a git repository, or the repo has no source files yet (only a README or nothing): there is nothing to describe. Say nothing and carry on.
-- `CLAUDE.md` exists at the repo root or in `.claude/`: the project already has context. Only rewrite it when the user asks.
-- `AGENTS.md` exists but `CLAUDE.md` doesn't: create a `CLAUDE.md` whose first line is `@AGENTS.md`, so Claude Code loads it. Add nothing else unless `AGENTS.md` lacks the essentials below; then add only the missing sections under the import.
+- Not inside a git repository, or no source files yet: nothing to describe. Carry on silently.
+- Both files exist: nothing to do unless the user asks for a refresh.
+- `CLAUDE.md` exists but `checks.json` doesn't: do only step 3, without touching `CLAUDE.md`.
+- `AGENTS.md` exists but `CLAUDE.md` doesn't: the new `CLAUDE.md` starts with `@AGENTS.md` (so Claude Code loads it) and adds only what `AGENTS.md` lacks.
 
 ## 1. Read the project
 
-Read, don't guess. In roughly this order, stopping once you can fill every section:
+Read, don't guess, stopping as soon as you can fill the sections below:
 
-- `README*`, `CONTRIBUTING*`, existing `docs/` (especially `docs/architecture.md`), ADRs.
-- Manifests and lockfiles: `package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `pom.xml`, `Gemfile`, `composer.json`, and the like. They give the stack, the package manager, and the scripts.
-- How it builds and ships: `Makefile`, `justfile`, `Dockerfile`, compose files, `.github/workflows/` or other CI. CI shows the real commands that gate a merge.
-- Quality config: linters, formatters, type checker, test runner config.
-- Environment: `.env.example` and config files. Record variable names only, never values.
-- Structure: the top two levels of the tree (`git ls-files` grouped by directory). Open a few entry points and one representative module to see the conventions in use.
-- Tests: where they live, how they are named, which runner.
+- `README*`, `CONTRIBUTING*`, existing `docs/`, ADRs.
+- Manifests and lockfiles (`package.json`, `pyproject.toml`, `go.mod`, `Cargo.toml`, ...): stack, package manager, scripts.
+- How it builds and ships: `Makefile`, `justfile`, `Dockerfile`, compose files, CI workflows. CI shows the commands that really gate a merge.
+- Quality config: linter, formatter, type checker, test runner.
+- `.env.example`: variable names only, never values.
+- A few entry points and one representative module, to spot conventions that differ from the ecosystem's defaults.
 
-Do not run commands that install, build, migrate, start services, or touch the network. You may run the test or typecheck command once if the repo is small and it clearly needs no setup; if you didn't run a command, its source (the script or CI job) is enough.
+Don't run anything that installs, builds, migrates, starts services, or touches the network.
 
-## 2. Write `CLAUDE.md`
+## 2. Draft `CLAUDE.md` and get it approved
 
-Call the Skill tool with "writing-for-agents" for how to write for an agent reader. Then write `CLAUDE.md` at the repo root with this shape (headings in the session language):
+Call the Skill tool with "writing-for-agents" for how to write for an agent reader. Draft this shape (headings in the session language):
 
 ```markdown
 # <Nome do projeto>
 
-<Duas ou três frases: o que o projeto é, para quem, e o que faz.>
-
-## Stack
-
-<Linguagem e versão, framework, banco, serviços externos. Uma linha cada.>
+<Uma ou duas frases: o que é e para quem.>
 
 ## Comandos
 
 | Para | Comando |
 | :- | :- |
 | Instalar | `...` |
-| Rodar local | `...` |
 | Testes | `...` |
 | Typecheck / lint | `...` |
 | Build | `...` |
 
-## Estrutura
-
-<Diretório → o que vive nele. Só os que importam para trabalhar no código.>
-
 ## Convenções
 
-<Só o que você viu no código ou na config: estilo, padrões de nome, onde ficam os testes, como erros são tratados, padrão de commit se o histórico mostra um.>
+<Só o que difere do padrão do ecossistema e você viu no código: onde ficam os testes se não é o óbvio, padrão de erros, regras de arquitetura, padrão de commit.>
 
 ## Cuidados
 
-<Arquivos gerados que não se editam à mão, variáveis de ambiente obrigatórias (só nomes), passos lentos ou perigosos, pegadinhas que a leitura revelou.>
-
-## Documentação
-
-<Links para README, docs/architecture.md, ADRs e outros docs que existem.>
+<Arquivos gerados que não se editam à mão, variáveis de ambiente obrigatórias (só nomes), comandos lentos ou perigosos, regras que quebram o build.>
 ```
 
 Rules:
 
-- Keep it under ~80 lines. It loads into every session, so every line must earn its place. Link to longer docs instead of copying them.
-- Only facts you found. Omit a section rather than fill it with guesses; a command you couldn't find stays out of the table.
-- Name things the way the code and docs name them.
-- No secrets, tokens, or environment values.
+- **No repository overview.** No directory map, no file list, no stack tour: the agent reads those itself. Add a line about structure only when it's a trap ("`legacy/` está congelado, não edite").
+- Under ~40 lines. Every line must be something an agent would get wrong without it.
+- Only facts you found. Omit what you couldn't confirm.
+- No secrets or environment values.
 
-## 3. Hand back
+Show the draft to the user and ask them to cut or correct anything before you write it. Write it only after they confirm. If they say "pode gravar" or similar without edits, write it as drafted.
 
-Tell the user in one or two lines that the project had no `CLAUDE.md`, that you created it, and what it covers. Don't commit it: it goes in with the user's next commit or the flow's first commit. Then continue with what the user asked.
+## 3. Write `docs/agents/checks.json`
+
+From the commands you confirmed (or from `CLAUDE.md` when it already existed), write:
+
+```json
+{
+  "onEdit": [
+    { "name": "format", "cmd": "npx prettier --write {file}", "ext": [".ts", ".tsx", ".js"] },
+    { "name": "lint", "cmd": "npx eslint {file}", "ext": [".ts", ".tsx", ".js"] }
+  ],
+  "onDone": [
+    { "name": "typecheck", "cmd": "npm run typecheck" },
+    { "name": "test", "cmd": "npm test" }
+  ],
+  "maxChangedLines": 400
+}
+```
+
+- `onEdit` runs after every edit on the edited file (`{file}` is replaced by its path). Only per-file commands that finish in seconds: formatter, linter. Use `ext` so a linter never runs on a file it can't parse. Leave it empty when the project has neither.
+- `onDone` runs before the agent may stop, whenever code changed in the session: typecheck, tests, build. A failing command blocks the stop and its output goes back to the agent.
+- Use the project's own scripts and the exact commands CI runs. Never add a tool the project doesn't already use.
+- `maxChangedLines` is the size budget per session; above it the user gets a warning to split the work. Keep 400 unless the user says otherwise.
+- Optional `testPatterns`: extra regexes that identify test files when the project uses an unusual layout.
+
+## 4. Hand back
+
+Tell the user in one or two lines what you created. Don't commit: the files go in with the next commit of the flow. Then continue with what the user asked.

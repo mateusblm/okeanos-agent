@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs an Okeanos hook. Without python3 the hooks are skipped, never blocking.
+command -v python3 >/dev/null 2>&1 || exit 0
+exec python3 "$(dirname "$0")/okeanos.py" "$@"

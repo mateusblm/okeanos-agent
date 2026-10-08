@@ -33,6 +33,8 @@ When the shape of that interface is itself in question (how deep the module is, 
 
 ## Rules of the loop
 
-- **Red before green.** Write the failing test first, then only enough code to pass it. Don't anticipate future tests or add speculative features.
+- **Short, steady cycles.** What the evidence supports is a short, uniform rhythm (a few minutes per cycle, tests run at every step, small commits), not the ritual order on its own. Keep each slice small enough to finish in one cycle.
+- **Red before green, and commit the red.** Write the failing test first, see it fail for the right reason, then commit it (`test: <behaviour> (red)`) before writing the implementation. A committed test is the contract: the Okeanos hook asks the user before any edit that rewrites or removes lines of a committed test file, while adding new tests stays free. This is what stops an implementation from passing by loosening its own test. Then write only enough code to pass it. Don't anticipate future tests or add speculative features.
+- **Never weaken a test to get green.** If a committed test turns out wrong, stop and tell the user why; changing it is their call.
 - **One slice at a time.** One seam, one test, one minimal implementation per cycle.
 - **Refactoring is not part of the loop.** It belongs to the review stage (see the `code-review` skill), not the red → green implementation cycle.

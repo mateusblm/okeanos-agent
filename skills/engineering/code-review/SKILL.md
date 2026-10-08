@@ -55,6 +55,16 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 - **Middle Man**: a class or function that mostly just delegates onward. → cut it, call the real target direct.
 - **Refused Bequest**: a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
 
+### 3b. Collect the deterministic signals
+
+Before spawning reviewers, gather what tools can say for certain, so the reviewers start from facts:
+
+- The result of every `onDone` command in `docs/agents/checks.json` (typecheck, tests, build), run now.
+- `git diff --stat <fixed-point>...HEAD` (size).
+- The diff restricted to test files, and the diff of dependency manifests and lockfiles.
+
+Paste all of it into both sub-agent prompts.
+
 ### 4. Spawn both sub-agents in parallel
 
 Issue both sub-agent calls together, in the foreground, and aggregate the reports they return.
@@ -63,21 +73,31 @@ Issue both sub-agent calls together, in the foreground, and aggregate the report
 
 - The full diff command and commit list.
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
+- The deterministic signals from step 3b.
 - The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
 
 **Spec sub-agent prompt** should include:
 
 - The diff command and commit list.
 - The path or fetched contents of the spec.
-- The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
+- The deterministic signals from step 3b.
+- The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong; (d) test tampering: tests deleted, skipped, or loosened, assertions changed to match what the code does instead of what the spec asks, expected values recomputed the way the code computes them. Quote the spec line for each finding. Under 400 words."
 
 If the spec is missing, skip the Spec sub-agent and note this in the final report.
+
+### 4b. Severity, in every sub-agent brief
+
+Add this to both briefs verbatim:
+
+"Tag every finding with one severity. **blocking**: a correctness bug you can point to, a spec requirement violated or missing, or test tampering. **important**: a documented-standard violation or a risk worth fixing before merge. **optional**: smells and preferences. Report only findings you can tie to a concrete defect, a quoted spec line, or a cited standard. An empty report is a valid result: don't invent findings to have something to say."
+
+Reviewers asked to find problems over-report; the severity line and the explicit permission to report nothing keep the signal usable.
 
 ### 5. Aggregate
 
 Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings, because the two axes are deliberately separate (see _Why two axes_).
 
-End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
+End with a one-line summary: findings per axis by severity, and the worst issue _within each axis_ (if any). Only **blocking** findings hold the publish gate; the rest go to the user as a list they can accept or defer. Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
 
 ## Why two axes
 
