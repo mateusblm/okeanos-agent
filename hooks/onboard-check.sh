@@ -2,8 +2,9 @@
 # SessionStart: if the session is in a git repo with source files but no agent
 # context file (CLAUDE.md in Claude Code, AGENTS.md elsewhere) or no
 # docs/agents/checks.json, tell the agent to run the onboard skill first.
-#   onboard-check.sh [--agent claude|codex|cursor|...]   (default: claude)
-# The output is hookSpecificOutput.additionalContext (Claude Code, Codex) or additional_context (Cursor).
+#   onboard-check.sh [--agent claude|codex|copilot|cursor|...]   (default: claude)
+# The output is hookSpecificOutput.additionalContext (Claude Code, Codex), a top-level
+# additionalContext (Copilot's camelCase sessionStart) or additional_context (Cursor).
 set -u
 
 agent=claude
@@ -40,6 +41,10 @@ if [ "$agent" = claude ]; then
 else
   has_context=0
   { [ -f "$root/AGENTS.md" ] || [ -f "$root/AGENTS.override.md" ]; } && has_context=1
+  # Copilot also reads CLAUDE.md and .github/copilot-instructions.md as project instructions.
+  if [ "$agent" = copilot ]; then
+    { [ -f "$root/CLAUDE.md" ] || [ -f "$root/.claude/CLAUDE.md" ] || [ -f "$root/.github/copilot-instructions.md" ]; } && has_context=1
+  fi
   [ "$has_context" = 1 ] && [ "$has_checks" = 1 ] && exit 0
   if [ "$has_context" = 1 ]; then
     note="This repo has AGENTS.md but no docs/agents/checks.json, so the Okeanos hooks have no commands to run. Before anything else, use the \`onboard\` skill and do only its checks.json step."
@@ -53,6 +58,9 @@ fi
 msg="Okeanos: ${note} Then continue with the user's request."
 if [ "$agent" = cursor ]; then
   printf '{"additional_context":"%s"}\n' "$msg"
+elif [ "$agent" = copilot ]; then
+  # Copilot's camelCase sessionStart reads a top-level additionalContext.
+  printf '{"additionalContext":"%s"}\n' "$msg"
 else
   printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}\n' "$msg"
 fi

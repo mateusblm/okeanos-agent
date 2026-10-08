@@ -172,12 +172,12 @@ def cmd_doctor(args):
     for name in AGENT_CLIS:
         found = shutil.which(name)
         print(f"  {name}: {found or 'não encontrado'}")
-    home = installer.home_dir()
-    cursor_hooks = os.path.join(installer.cursor_dir(home), "hooks.json")
-    print("cursor:")
-    print(f"  hooks do Okeanos em {cursor_hooks}: {yes(installer.has_okeanos_hooks(cursor_hooks, 'cursor'))}")
+    print(f"instalação (em {installer.home_dir()}):")
+    for agent, pieces in installer.status().items():
+        print(f"  {agent}: " + (f"instalado ({', '.join(pieces)})" if pieces else "não instalado"))
     if root:
-        print(f"  regra do projeto {installer.CURSOR_RULE}: {yes(os.path.exists(os.path.join(root, installer.CURSOR_RULE)))}")
+        rule = os.path.join(root, installer.CURSOR_RULE)
+        print(f"  cursor, regra deste projeto ({installer.CURSOR_RULE}): {yes(os.path.exists(rule))}")
     return 0
 
 
@@ -206,15 +206,17 @@ def parser():
     h.add_argument("hook", choices=githooks.HOOKS)
     h.add_argument("rest", nargs=argparse.REMAINDER)
     h.set_defaults(func=cmd_githook)
-    i = sub.add_parser("install", help="instala o Okeanos nos agentes encontrados (Claude Code, Codex, Cursor)",
+    i = sub.add_parser("install", help="instala o Okeanos nos agentes encontrados (Claude Code, Codex, Copilot, Cursor)",
                        description="Detecta os agentes e instala em cada um: Claude Code pelo marketplace; "
                                    "Codex com skills em ~/.agents/skills, o bloco do processo no AGENTS.md global e os "
-                                   "hooks no hooks.json do usuário; Cursor com as mesmas skills e os hooks em "
-                                   "~/.cursor/hooks.json (as regras do Cursor vão por projeto, com --project). "
-                                   "Também liga a CLI em ~/.local/bin. Idempotente; "
-                                   "edita só o que é do Okeanos e guarda <arquivo>.okeanos-bak antes de mudar.")
+                                   "hooks no hooks.json do usuário; Copilot com as mesmas skills, o bloco em "
+                                   "~/.copilot/copilot-instructions.md e os hooks em ~/.copilot/hooks/okeanos.json; "
+                                   "Cursor com as mesmas skills e os hooks em ~/.cursor/hooks.json (as regras do "
+                                   "Cursor vão por projeto, com --project). "
+                                   "Também liga a CLI em ~/.local/bin. Idempotente; edita só o que é do Okeanos e "
+                                   "guarda <arquivo>.okeanos-bak antes de mudar.")
     i.add_argument("--agent", action="append", metavar="AGENTE",
-                   help="só este agente (repita ou separe por vírgula): claude, codex, cursor")
+                   help="só este agente (repita ou separe por vírgula): claude, codex, copilot, cursor")
     i.add_argument("--project", action="store_true",
                    help="com --agent cursor: escreve o processo como regra do Cursor (.cursor/rules/okeanos.mdc) "
                         "no repositório atual")

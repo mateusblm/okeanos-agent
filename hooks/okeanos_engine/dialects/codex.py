@@ -126,13 +126,13 @@ def parse_patch(text):
     return files
 
 
-def patch_events(text, kind, cwd, session_id):
+def patch_events(text, kind, cwd, session_id, agent=NAME):
     """One Event per file the patch touches. Anything we can't read is a full rewrite."""
     def at(path):
         return path if os.path.isabs(path) or not cwd else os.path.join(cwd, path)
 
     def make(path, **fields):
-        return Event(agent=NAME, kind=kind, cwd=cwd, session_id=session_id, file_path=at(path), **fields)
+        return Event(agent=agent, kind=kind, cwd=cwd, session_id=session_id, file_path=at(path), **fields)
 
     events = []
     for f in parse_patch(text):
