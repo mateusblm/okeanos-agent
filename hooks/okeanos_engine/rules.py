@@ -213,21 +213,33 @@ def check_rm(toks, root):
     return None
 
 
+def secret_types(text):
+    """Names of the secret kinds found in text (never the values)."""
+    return [name for name, pat in SECRET_PATTERNS if re.search(pat, text)]
+
+
+def is_env_file(rel):
+    return bool(re.search(r"(^|/)\.env(\.[^/]*)?$", rel)) and not re.search(r"\.(example|sample|template)$", rel)
+
+
+def added_lines(diff):
+    """[(path, line)] for the lines a `git diff -U0` adds (deleted files have none)."""
+    out, current = [], None
+    for line in diff.splitlines():
+        if line.startswith("+++ "):
+            current = line[6:] if line.startswith("+++ b/") else None
+        elif line.startswith("+") and current:
+            out.append((current, line[1:]))
+    return out
+
+
 def scan_secrets(root):
     """Scan what a commit could include: tracked changes vs HEAD plus untracked files."""
-    findings = []
     diff = git(root, "diff", "HEAD", "-U0", "--no-color", timeout=20) or ""
-    current = None
-    for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            current = line[6:]
-        elif line.startswith("+") and not line.startswith("+++") and current:
-            for name, pat in SECRET_PATTERNS:
-                if re.search(pat, line):
-                    findings.append(f"{current}: {name}")
+    findings = [f"{rel}: {name}" for rel, line in added_lines(diff) for name in secret_types(line)]
     untracked = (git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines()
     for rel in untracked[:500]:
-        if re.search(r"(^|/)\.env(\.[^/]*)?$", rel) and not re.search(r"\.(example|sample|template)$", rel):
+        if is_env_file(rel):
             findings.append(f"{rel}: arquivo .env não ignorado pelo git")
             continue
         try:
@@ -238,9 +250,7 @@ def scan_secrets(root):
                 text = f.read()
         except Exception:  # noqa: BLE001
             continue
-        for name, pat in SECRET_PATTERNS:
-            if re.search(pat, text):
-                findings.append(f"{rel}: {name}")
+        findings += [f"{rel}: {name}" for name in secret_types(text)]
     return sorted(set(findings))
 
 
@@ -436,6 +446,13 @@ def protected_lines_removed(old_text, new_text):
             if (ASSERTION.search(l) or TEST_DEF.search(l)) and norm_code(l) not in remaining]
 
 
+def weakened_test_lines(old_text, new_text):
+    """Lines that remove or alter assertions/test cases, or newly skip tests, going from old to new."""
+    before = set(significant(old_text))
+    skipped = [l for l in significant(new_text) if SKIP_MARKERS.search(l) and l not in before]
+    return protected_lines_removed(old_text, new_text) + skipped
+
+
 def repo_file(root, path):
     """(full, rel) for a path inside the repo, else None."""
     full = os.path.normpath(path if os.path.isabs(path) else os.path.join(root, path))
@@ -470,11 +487,9 @@ def pre_edit(event, ctx):
             return Decision()
     else:
         pairs = list(event.edits)
-    removed = [l for old, new in pairs for l in protected_lines_removed(old, new)]
-    skipped = [l for old, new in pairs for l in significant(new)
-               if SKIP_MARKERS.search(l) and l not in set(significant(old))]
-    if removed or skipped:
-        detail = "\n".join(f"- {l[:100]}" for l in (removed + skipped)[:5])
+    weakened = [l for old, new in pairs for l in weakened_test_lines(old, new)]
+    if weakened:
+        detail = "\n".join(f"- {l[:100]}" for l in weakened[:5])
         return resolve_asks([([rel], f"Okeanos: `{rel}` é um teste já commitado, e esta edição altera, remove ou desliga "
                                      f"asserções ou casos de teste:\n{detail}\nTestes commitados são o contrato: mudar exige a sua aprovação. "
                                      "Adicionar testes e mexer em imports ou helpers não pede.")], ctx)

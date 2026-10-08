@@ -135,7 +135,18 @@ okeanos aprovacoes                   # lista as ativas
 okeanos revogar [alvo]               # remove uma ou todas
 ```
 
-A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE` ou as variáveis `CODEX_*` que o Codex põe no shell das ferramentas), e os hooks bloqueiam o agente que tenta rodá-los ou escrever em `.git/okeanos/`. Segredos, force push, `--no-verify`, `rm -r` fora do repo e pacote inexistente nunca são aprováveis. `okeanos doctor` mostra onde o Okeanos está, o que o repositório tem e quais agentes estão no PATH; `okeanos githooks` chega num ticket futuro.
+A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE` ou as variáveis `CODEX_*` que o Codex põe no shell das ferramentas), e os hooks bloqueiam o agente que tenta rodá-los ou escrever em `.git/okeanos/`. Segredos, force push, `--no-verify`, `rm -r` fora do repo e pacote inexistente nunca são aprováveis. `okeanos doctor` mostra onde o Okeanos está, o que o repositório tem e quais agentes estão no PATH.
+
+### Git hooks
+
+`okeanos githooks`, rodado dentro de um repositório, instala dois git hooks que valem para qualquer agente e para quem commita à mão:
+
+| Hook | Comportamento |
+| :- | :- |
+| `pre-commit` | Falha se o que está no stage tem segredo (mostra arquivo e tipo, nunca o valor) ou arquivo `.env` novo. Falha se um teste já commitado perde ou muda asserções ou casos de teste, ou ganha `skip`, sem aprovação ativa; a mensagem termina com `Para aprovar: okeanos aprovar <arquivo>`. Reformatar e adicionar testes passam. Supressões novas de lint ou tipo só geram aviso. |
+| `pre-push` | Roda os comandos `onDone` de `docs/agents/checks.json` e falha mostrando o comando e o fim da saída. Sem `checks.json`, avisa em uma linha e deixa passar. |
+
+Os hooks vão para a pasta que o git usa (`core.hooksPath`, ou `.git/hooks` do repositório principal, também a partir de um worktree) e chamam `bin/okeanos` pelo caminho absoluto de quando foram instalados. Se o Okeanos mudar de lugar, rode `okeanos githooks` de novo. Um hook que já existia vira `<nome>.okeanos-prev`, roda antes e, se falhar, o hook falha. Rodar de novo não muda nada. `okeanos githooks --uninstall` remove só os hooks do Okeanos e devolve os anteriores. Sem `python3` ou sem o motor, os hooks avisam e deixam passar. `git commit --no-verify` pula os hooks: é uma escolha do humano, já que os hooks do agente negam `--no-verify`.
 
 ## Configuração
 

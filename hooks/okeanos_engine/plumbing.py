@@ -7,9 +7,9 @@ import subprocess
 import time
 
 
-def run(cmd, cwd, timeout=10, shell=False):
+def run(cmd, cwd, timeout=10, shell=False, env=None):
     try:
-        p = subprocess.run(cmd, cwd=cwd, shell=shell, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, cwd=cwd, shell=shell, capture_output=True, text=True, timeout=timeout, env=env)
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except subprocess.TimeoutExpired:
         return 124, f"timed out after {timeout}s"
