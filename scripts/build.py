@@ -47,8 +47,25 @@ def outputs(process):
 
 
 def main(argv):
+    check = "--check" in argv
     process = (ROOT / PROCESS).read_text(encoding="utf-8")
-    for rel, content in outputs(process).items():
+    expected = outputs(process)
+
+    if check:
+        stale = [
+            rel
+            for rel, content in expected.items()
+            if not (ROOT / rel).is_file()
+            or (ROOT / rel).read_text(encoding="utf-8") != content
+        ]
+        for rel in stale:
+            print(f"desatualizado: {rel.as_posix()}", file=sys.stderr)
+        if stale:
+            print("Rode: python3 scripts/build.py", file=sys.stderr)
+            return 1
+        return 0
+
+    for rel, content in expected.items():
         path = ROOT / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
