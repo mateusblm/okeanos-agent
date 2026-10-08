@@ -45,3 +45,15 @@ def test_build_writes_claude_output_style_from_process(repo):
         "---\n"
         "\n" + PROCESS
     )
+
+
+def test_build_writes_agents_md_block_from_process(repo):
+    result = run(repo)
+
+    assert result.returncode == 0, result.stderr
+    block = (repo / "adapters" / "agents-md" / "okeanos.md").read_text(encoding="utf-8")
+    lines = block.splitlines()
+    assert lines[0] == "<!-- okeanos:start -->"
+    assert lines[-1] == "<!-- okeanos:end -->"
+    assert "gerado" in lines[1] and "core/process.md" in lines[1]
+    assert PROCESS in block
