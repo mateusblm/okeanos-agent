@@ -18,6 +18,7 @@ CLI = ROOT / "bin" / "okeanos"
 BLOCK = (ROOT / "adapters" / "agents-md" / "okeanos.md").read_text()
 SKILLS = [p.split("/")[-1] for p in json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text())["skills"]]
 CODEX_HOOKS = {"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop"}
+COPILOT_HOOKS = {"sessionStart", "preToolUse", "postToolUse", "agentStop"}
 
 FAKE_CLAUDE = """#!/bin/sh
 echo "$*" >> "$FAKE_STATE/log"
@@ -54,13 +55,14 @@ def add_agent(fakebin, name):
     path.chmod(0o755)
 
 
-def install(home, fakebin, *args, extra_path=""):
+def install(home, fakebin, *args, extra_path="", env_extra=None, cli="install"):
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("OKEANOS_", "CODEX_", "CLAUDE")) and k != "PATH"}
+           if not k.startswith(("OKEANOS_", "CODEX_", "CLAUDE", "COPILOT_")) and k != "PATH"}
+    env.update(env_extra or {})
     env["OKEANOS_HOME_DIR"] = str(home)
     env["FAKE_STATE"] = str(fakebin.parent / "state")
     env["PATH"] = os.pathsep.join(p for p in (str(fakebin), extra_path, "/usr/bin", "/bin") if p)
-    p = subprocess.run([sys.executable, str(CLI), "install", *args], capture_output=True, text=True,
+    p = subprocess.run([sys.executable, str(CLI), cli, *args], capture_output=True, text=True,
                        env=env, stdin=subprocess.DEVNULL, timeout=120)
     return p.returncode, p.stdout + p.stderr
 
@@ -232,6 +234,160 @@ def test_local_bin_on_path_gives_no_warning(home, fakebin):
     add_agent(fakebin, "codex")
     code, out = install(home, fakebin, extra_path=str(home / ".local" / "bin"))
     assert code == 0 and "não está no PATH" not in out
+
+
+# ---------------------------------------------------------------------------
+# copilot
+# ---------------------------------------------------------------------------
+
+def copilot_hooks(home):
+    return json.loads((home / ".copilot" / "hooks" / "okeanos.json").read_text())
+
+
+def copilot_commands(data):
+    return [h["bash"] for entries in data["hooks"].values() for h in entries
+            if "okeanos" in h.get("bash", "") or str(ROOT) in h.get("bash", "")]
+
+
+def test_copilot_is_detected_on_the_path(home, fakebin):
+    add_agent(fakebin, "copilot")
+    code, out = install(home, fakebin)
+    assert code == 0, out
+    assert "copilot:" in out and "codex: não encontrado" in out
+    assert (home / ".copilot" / "hooks" / "okeanos.json").exists()
+    assert not (home / ".codex").exists()
+
+
+def test_copilot_install_puts_every_piece_in_place(home, fakebin):
+    add_agent(fakebin, "copilot")
+    code, out = install(home, fakebin, "--agent", "copilot")
+    assert code == 0, out
+    for name in SKILLS:
+        link = home / ".agents" / "skills" / name
+        assert link.is_symlink() and (link / "SKILL.md").is_file(), name
+    assert (home / ".copilot" / "copilot-instructions.md").read_text() == BLOCK
+    data = copilot_hooks(home)
+    assert data["version"] == 1
+    assert set(data["hooks"]) == COPILOT_HOOKS
+    commands = copilot_commands(data)
+    for sub in ("session-start", "pre-tool", "post-tool", "stop"):
+        assert any(c.endswith(f"--agent copilot {sub}") and str(ROOT / "hooks" / "run") in c for c in commands), sub
+    assert any("onboard-check.sh" in c and "--agent copilot" in c for c in commands)
+    stop = data["hooks"]["agentStop"][0]
+    assert stop["type"] == "command" and stop["timeoutSec"] >= 600
+    assert (home / ".local" / "bin" / "okeanos").is_symlink()
+    assert "reinicie" in out.lower()
+
+
+def test_copilot_second_run_is_idempotent(home, fakebin):
+    add_agent(fakebin, "copilot")
+    add_agent(fakebin, "codex")
+    install(home, fakebin)
+    first = snapshot(home)
+    code, out = install(home, fakebin)
+    assert code == 0, out
+    assert snapshot(home) == first
+
+
+def test_copilot_user_content_is_preserved_and_backed_up(home, fakebin):
+    add_agent(fakebin, "copilot")
+    cdir = home / ".copilot"
+    (cdir / "hooks").mkdir(parents=True)
+    user_md = "# Minhas instruções\n\nResponda curto.\n"
+    (cdir / "copilot-instructions.md").write_text(user_md)
+    mine = {"version": 1, "hooks": {"agentStop": [{"type": "command", "bash": "notify-send done"}]}}
+    (cdir / "hooks" / "mine.json").write_text(json.dumps(mine))
+    (cdir / "settings.json").write_text('{"model": "gpt-5.5"}')
+
+    code, out = install(home, fakebin)
+    assert code == 0, out
+    md = (cdir / "copilot-instructions.md").read_text()
+    assert md.startswith(user_md) and BLOCK in md
+    assert (cdir / "copilot-instructions.md.okeanos-bak").read_text() == user_md
+    assert json.loads((cdir / "hooks" / "mine.json").read_text()) == mine
+    assert (cdir / "settings.json").read_text() == '{"model": "gpt-5.5"}'
+
+    code, out = install(home, fakebin, "--uninstall")
+    assert code == 0, out
+    assert (cdir / "copilot-instructions.md").read_text() == user_md
+    assert not (cdir / "hooks" / "okeanos.json").exists()
+    assert json.loads((cdir / "hooks" / "mine.json").read_text()) == mine
+    assert not any((home / ".agents" / "skills" / n).exists() for n in SKILLS)
+
+
+def test_copilot_hand_edits_to_the_okeanos_hooks_file_survive(home, fakebin):
+    add_agent(fakebin, "copilot")
+    install(home, fakebin)
+    path = home / ".copilot" / "hooks" / "okeanos.json"
+    data = json.loads(path.read_text())
+    data["hooks"]["agentStop"].append({"type": "command", "bash": "my-notifier"})
+    path.write_text(json.dumps(data))
+    install(home, fakebin)
+    assert {"type": "command", "bash": "my-notifier"} in copilot_hooks(home)["hooks"]["agentStop"]
+    install(home, fakebin, "--uninstall")
+    left = json.loads(path.read_text())
+    assert left["hooks"] == {"agentStop": [{"type": "command", "bash": "my-notifier"}]}
+
+
+def test_skills_shared_with_codex_stay_until_the_last_agent_leaves(home, fakebin):
+    add_agent(fakebin, "copilot")
+    add_agent(fakebin, "codex")
+    install(home, fakebin)
+    code, out = install(home, fakebin, "--uninstall", "--agent", "copilot")
+    assert code == 0, out
+    assert not (home / ".copilot" / "hooks" / "okeanos.json").exists()
+    assert all((home / ".agents" / "skills" / n).is_symlink() for n in SKILLS)
+    code, out = install(home, fakebin, "--uninstall", "--agent", "codex")
+    assert code == 0, out
+    assert not any((home / ".agents" / "skills" / n).exists() for n in SKILLS)
+
+
+@pytest.mark.parametrize("content", ["{ not json", '{"version": 1, "hooks": []}'])
+def test_invalid_copilot_hooks_file_aborts_without_writing(home, fakebin, content):
+    add_agent(fakebin, "copilot")
+    hooks = home / ".copilot" / "hooks"
+    hooks.mkdir(parents=True)
+    (hooks / "okeanos.json").write_text(content)
+    before = snapshot(home)
+    code, out = install(home, fakebin, "--agent", "copilot")
+    assert code != 0
+    assert str(hooks / "okeanos.json") in out
+    assert {k: v for k, v in snapshot(home).items() if not k.startswith(".local")} == before
+
+
+def test_copilot_disabled_hooks_are_reported(home, fakebin):
+    add_agent(fakebin, "copilot")
+    (home / ".copilot").mkdir()
+    (home / ".copilot" / "settings.json").write_text('{"disableAllHooks": true}')
+    code, out = install(home, fakebin)
+    assert code == 0 and "disableAllHooks" in out
+
+
+def test_copilot_home_is_ignored_when_the_home_is_redirected(home, fakebin, tmp_path):
+    add_agent(fakebin, "copilot")
+    elsewhere = tmp_path / "real-copilot-home"
+    code, out = install(home, fakebin, env_extra={"COPILOT_HOME": str(elsewhere)})
+    assert code == 0, out
+    assert not elsewhere.exists()
+    assert (home / ".copilot" / "hooks" / "okeanos.json").exists()
+
+
+def test_copilot_dry_run_writes_nothing(home, fakebin):
+    add_agent(fakebin, "copilot")
+    code, out = install(home, fakebin, "--dry-run", "--agent", "copilot")
+    assert code == 0, out
+    assert snapshot(home) == {}
+    assert "copilot-instructions.md" in out and "okeanos.json" in out
+
+
+def test_doctor_shows_copilot_status(home, fakebin):
+    add_agent(fakebin, "copilot")
+    code, out = install(home, fakebin, cli="doctor")
+    assert any(l.strip().startswith("copilot") and "não instalado" in l for l in out.splitlines()), out
+    install(home, fakebin)
+    code, out = install(home, fakebin, cli="doctor")
+    line = next(l for l in out.splitlines() if l.strip().startswith("copilot:") and "instalado" in l)
+    assert "não instalado" not in line and "hooks" in line
 
 
 # ---------------------------------------------------------------------------
