@@ -37,9 +37,28 @@ const VERIFY_COMMAND = "npm test";
 // Host paths copied into each ticket worktree (e.g. node_modules, .env).
 const COPY_TO_WORKTREE: string[] = [];
 
-const IMPLEMENT_MODEL = "claude-sonnet-5-5";
-const REVIEW_MODEL = "claude-sonnet-5-5";
-const MERGE_MODEL = "claude-sonnet-5-5";
+// Coding agent that runs inside the sandboxes: "claude", "codex", "copilot"
+// or "cursor". Its CLI must be installed in .sandcastle/Dockerfile and its
+// token or key set in .sandcastle/.env.
+const AGENT: string = "claude";
+
+// Model per agent and role. Only the row for AGENT is used.
+const MODELS = {
+  claude: {
+    implement: "claude-sonnet-5-5",
+    review: "claude-sonnet-5-5",
+    merge: "claude-sonnet-5-5",
+    acceptance: "claude-sonnet-5-5",
+  },
+  codex: { implement: "gpt-5.4", review: "gpt-5.4", merge: "gpt-5.4", acceptance: "gpt-5.4" },
+  copilot: {
+    implement: "claude-sonnet-4.5",
+    review: "claude-sonnet-4.5",
+    merge: "claude-sonnet-4.5",
+    acceptance: "claude-sonnet-4.5",
+  },
+  cursor: { implement: "composer-2", review: "composer-2", merge: "composer-2", acceptance: "composer-2" },
+};
 
 // Max tickets worked at once, and max plan→execute→merge rounds.
 const PARALLEL = 3;
@@ -52,9 +71,28 @@ const PILOT_SIZE = 2;
 // can't see or bend them. Doubles agent runs per ticket; worth it for
 // critical features. The spec must name the interfaces (seams) to test.
 const HIDDEN_ACCEPTANCE = false;
-const ACCEPTANCE_MODEL = "claude-sonnet-5-5";
 
 // ---------------------------------------------------------------------------
+
+// Sandcastle agent factory per agent, and where that agent reads user skills.
+type AgentName = keyof typeof MODELS;
+type Role = keyof (typeof MODELS)[AgentName];
+const AGENTS: Record<AgentName, { factory: (model: string) => sandcastle.AgentProvider; skillsDir: string }> = {
+  claude: { factory: sandcastle.claudeCode, skillsDir: "/home/agent/.claude/skills" },
+  codex: { factory: sandcastle.codex, skillsDir: "/home/agent/.agents/skills" },
+  copilot: { factory: sandcastle.copilot, skillsDir: "/home/agent/.agents/skills" },
+  cursor: { factory: sandcastle.cursor, skillsDir: "/home/agent/.agents/skills" },
+};
+
+const isAgentName = (name: string): name is AgentName => Object.hasOwn(AGENTS, name);
+if (!isAgentName(AGENT)) {
+  console.error(
+    `Unsupported AGENT "${AGENT}" in .sandcastle/main.mts. Supported: ${Object.keys(AGENTS).join(", ")}.`,
+  );
+  process.exit(1);
+}
+const agentName: AgentName = AGENT;
+const agentFor = (role: Role) => AGENTS[agentName].factory(MODELS[agentName][role]);
 
 const DONE = new Set(["done", "resolved", "closed"]);
 
@@ -141,7 +179,7 @@ const sandbox = () =>
   docker({
     // Okeanos skills (tdd, codebase-design) available to the agent in the sandbox.
     mounts: [
-      { hostPath: ".sandcastle/skills", sandboxPath: "/home/agent/.claude/skills", readonly: true },
+      { hostPath: ".sandcastle/skills", sandboxPath: AGENTS[agentName].skillsDir, readonly: true },
     ],
   });
 
@@ -163,7 +201,7 @@ async function writeHiddenAcceptance(ticket: Ticket): Promise<string> {
     const run = await box.run({
       name: `acceptance-${ticket.id}`,
       maxIterations: 5,
-      agent: sandcastle.claudeCode(ACCEPTANCE_MODEL),
+      agent: agentFor("acceptance"),
       promptFile: "./.sandcastle/acceptance-prompt.md",
       promptArgs: { TICKET_ID: ticket.id, TICKET_BODY: ticket.body, SPEC: spec },
     });
@@ -211,7 +249,7 @@ for (let round = 1; round <= rounds; round++) {
         const implement = await box.run({
           name: `implement-${ticket.id}`,
           maxIterations: 20,
-          agent: sandcastle.claudeCode(IMPLEMENT_MODEL),
+          agent: agentFor("implement"),
           promptFile: "./.sandcastle/implement-prompt.md",
           promptArgs: {
             TICKET_ID: ticket.id,
@@ -225,7 +263,7 @@ for (let round = 1; round <= rounds; round++) {
         await box.run({
           name: `review-${ticket.id}`,
           maxIterations: 1,
-          agent: sandcastle.claudeCode(REVIEW_MODEL),
+          agent: agentFor("review"),
           promptFile: "./.sandcastle/review-prompt.md",
           promptArgs: { TICKET_BODY: ticket.body, VERIFY_COMMAND },
         });
@@ -259,7 +297,7 @@ for (let round = 1; round <= rounds; round++) {
       maxIterations: 1,
       sandbox: sandbox(),
       hooks,
-      agent: sandcastle.claudeCode(MERGE_MODEL),
+      agent: agentFor("merge"),
       promptFile: "./.sandcastle/merge-prompt.md",
       promptArgs: {
         BRANCHES: finished.map((f) => `- ${f.branch}`).join("\n"),
