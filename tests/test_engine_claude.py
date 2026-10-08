@@ -84,10 +84,10 @@ def bash(root, command, session="s1", **kw):
                              "tool_name": "Bash", "tool_input": {"command": command}}, **kw)
 
 
-def edit(root, tool, tool_input, event="pre-edit", session="s1"):
+def edit(root, tool, tool_input, event="pre-edit", session="s1", **kw):
     name = "PreToolUse" if event == "pre-edit" else "PostToolUse"
     return hook(event, {"session_id": session, "cwd": str(root), "hook_event_name": name,
-                        "tool_name": tool, "tool_input": tool_input})
+                        "tool_name": tool, "tool_input": tool_input}, **kw)
 
 
 def stop(root, session="s1", last=""):
@@ -508,3 +508,168 @@ def test_hooks_json_wires_the_claude_dialect():
     commands = [h["command"] for groups in wiring["hooks"].values() for g in groups for h in g["hooks"]
                 if "/hooks/run" in h["command"]]
     assert commands and all("--agent claude" in c for c in commands)
+
+
+# ---------------------------------------------------------------------------
+# approvals: `okeanos aprovar <alvo>` turns one ask into allow, for a while
+# ---------------------------------------------------------------------------
+
+NOW = 1_800_000_000
+CLOCK = {"OKEANOS_NOW": str(NOW)}
+
+
+def approve(root, *targets, expires_at=NOW + 600):
+    """Write approvals the way `okeanos aprovar` stores them (the on-disk contract)."""
+    path = root / ".git" / "okeanos" / "approvals.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = json.loads(path.read_text()) if path.exists() else {}
+    for t in targets:
+        data[t] = {"approved_at": NOW, "expires_at": expires_at}
+    path.write_text(json.dumps(data))
+
+
+def change_assertion(root):
+    return edit(root, "Edit", {"file_path": str(root / "tests" / "test_calc.py"),
+                               "old_string": "    assert add(1, 2) == 3", "new_string": "    assert add(1, 2) == 4"},
+                env=CLOCK)
+
+
+def test_ask_tells_how_to_approve_the_exact_target(repo):
+    d, reason = decision(change_assertion(repo)[1])
+    assert d == "ask"
+    assert reason.splitlines()[-1] == "Para aprovar: okeanos aprovar tests/test_calc.py"
+    d, reason = decision(bash(repo, "git push", env=CLOCK)[1])
+    assert reason.splitlines()[-1] == "Para aprovar: okeanos aprovar push"
+
+
+def test_approved_test_edit_is_allowed_and_logged(repo):
+    approve(repo, "tests/test_calc.py")
+    assert change_assertion(repo) == (0, None)
+    assert "pre-edit:approved" in [e["kind"] for e in metrics(repo)]
+
+
+def test_expired_approval_asks(repo):
+    approve(repo, "tests/test_calc.py", expires_at=NOW - 1)
+    assert decision(change_assertion(repo)[1])[0] == "ask"
+
+
+def test_approval_for_another_file_asks(repo):
+    approve(repo, "tests/test_other.py", "push")
+    assert decision(change_assertion(repo)[1])[0] == "ask"
+
+
+def test_approved_shell_write_to_committed_test_is_allowed(repo):
+    approve(repo, "tests/test_calc.py")
+    assert bash(repo, "echo 'def test_x(): pass' > tests/test_calc.py", env=CLOCK) == (0, None)
+
+
+def test_approved_push_is_allowed_and_logged(repo):
+    approve(repo, "push")
+    assert bash(repo, "git push origin feature", env=CLOCK) == (0, None)
+    assert bash(repo, "gh pr create --fill", env=CLOCK) == (0, None)
+    assert "pre-bash:approved" in [e["kind"] for e in metrics(repo)]
+
+
+def test_approved_push_does_not_cover_force_push(repo):
+    approve(repo, "push")
+    assert decision(bash(repo, "git push --force", env=CLOCK)[1])[0] == "deny"
+
+
+def test_push_approval_does_not_cover_other_asks_in_the_same_command(repo):
+    approve(repo, "push")
+    d, reason = decision(bash(repo, "echo x > tests/test_calc.py && git push", env=CLOCK)[1])
+    assert d == "ask"
+    assert reason.splitlines()[-1] == "Para aprovar: okeanos aprovar tests/test_calc.py"
+
+
+def test_approved_suspicious_package_is_allowed(repo, registry):
+    env = registry({
+        "https://registry.npmjs.org/expresss": {"time": {"created": "2015-01-01T00:00:00Z"}},
+        "https://api.npmjs.org/downloads/point/last-week/expresss": {"downloads": 50000},
+    })
+    d, reason = decision(bash(repo, "npm install expresss", env={**env, **CLOCK})[1])
+    assert reason.splitlines()[-1] == "Para aprovar: okeanos aprovar pacote:expresss"
+    approve(repo, "pacote:expresss")
+    assert bash(repo, "npm install expresss", env={**env, **CLOCK}) == (0, None)
+
+
+def test_approval_never_covers_a_nonexistent_package(repo, registry):
+    env = registry({"https://registry.npmjs.org/leftpad-hallucinated": 404})
+    approve(repo, "pacote:leftpad-hallucinated")
+    assert decision(bash(repo, "npm install leftpad-hallucinated", env={**env, **CLOCK})[1])[0] == "deny"
+
+
+def test_secret_commit_is_denied_whatever_was_approved(repo):
+    (repo / "config.py").write_text('KEY = "AKIA' + "ABCDEFGHIJKLMNOP" + '"\n')
+    git(repo, "add", "config.py")
+    approve(repo, "push", "config.py", "tests/test_calc.py", "pacote:x")
+    assert decision(bash(repo, "git commit -m wip", env=CLOCK)[1])[0] == "deny"
+
+
+# ---------------------------------------------------------------------------
+# approvals belong to the human: the agent can't grant them to itself
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("command", [
+    "okeanos aprovar push",
+    "okeanos revogar",
+    "bin/okeanos aprovar tests/test_calc.py",
+    "python3 /opt/okeanos-agent/bin/okeanos aprovar push",
+    "cd /tmp && OKEANOS_NOW=1 ~/.local/bin/okeanos aprovar push",
+    "sh -c 'okeanos aprovar push'",
+    "script -qc 'okeanos aprovar push' /dev/null",
+    "echo 'okeanos aprovar push' | script -q /dev/null",
+    "x=$(okeanos aprovar push)",
+])
+def test_agent_running_okeanos_aprovar_is_denied(repo, command):
+    d, reason = decision(bash(repo, command)[1])
+    assert d == "deny" and "humano" in reason
+
+
+def test_agent_running_okeanos_aprovar_outside_a_repo_is_denied(tmp_path):
+    out = hook("pre-bash", {"session_id": "s1", "cwd": str(tmp_path), "tool_name": "Bash",
+                            "tool_input": {"command": "okeanos aprovar push"}})[1]
+    assert decision(out)[0] == "deny"
+
+
+@pytest.mark.parametrize("command", [
+    "okeanos aprovacoes",
+    "okeanos metrics 30",
+    "okeanos doctor",
+    "git commit -m 'docs: explain okeanos aprovar'",
+])
+def test_reading_commands_are_allowed(repo, command):
+    assert bash(repo, command) == (0, None)
+
+
+@pytest.mark.parametrize("command", [
+    "echo '{\"push\": {\"expires_at\": 9999999999}}' > .git/okeanos/approvals.json",
+    "cat x >> .git/okeanos/approvals.json",
+    "cp /tmp/x .git/okeanos/approvals.json",
+    "tee .git/okeanos/approvals.json < /tmp/x",
+    "rm .git/okeanos/metrics.jsonl",
+    "python3 -c 'open(\".git/okeanos/approvals.json\", \"w\").write(\"{}\")'",
+])
+def test_agent_writing_okeanos_state_via_shell_is_denied(repo, command):
+    d, reason = decision(bash(repo, command)[1])
+    assert d == "deny" and "humano" in reason
+
+
+def test_agent_writing_okeanos_state_from_a_subdirectory_is_denied(repo):
+    out = hook("pre-bash", {"session_id": "s1", "cwd": str(repo / "src"), "tool_name": "Bash",
+                            "tool_input": {"command": "echo {} > ../.git/okeanos/approvals.json"}})[1]
+    assert decision(out)[0] == "deny"
+
+
+def test_reading_okeanos_state_is_allowed(repo):
+    assert bash(repo, "cat .git/okeanos/approvals.json") == (0, None)
+
+
+@pytest.mark.parametrize("tool,tool_input", [
+    ("Write", {"content": "{}"}),
+    ("Edit", {"old_string": "{}", "new_string": "{\"push\": {}}"}),
+])
+def test_agent_editing_okeanos_state_is_denied(repo, tool, tool_input):
+    path = repo / ".git" / "okeanos" / "approvals.json"
+    d, reason = decision(edit(repo, tool, {"file_path": str(path), **tool_input})[1])
+    assert d == "deny" and "humano" in reason
