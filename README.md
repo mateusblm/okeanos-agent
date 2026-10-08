@@ -26,20 +26,21 @@ Na primeira sessão num repositório sem `CLAUDE.md` ou sem `docs/agents/checks.
 
 Para tratar um pedido sem o processo, escreva "sem okeanos" (ou "modo livre") na mensagem.
 
-### Instalador (Claude Code e Codex)
+### Instalador (Claude Code, Codex e Cursor)
 
-Um comando instala em todos os agentes que estiverem no PATH:
+Um comando instala em todos os agentes encontrados na máquina:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mateusblm/okeanos-agent/main/install.sh | sh
 ```
 
-O script clona o repositório em `~/.local/share/okeanos` (ou o atualiza, se já existir) e roda `bin/okeanos install`. Num clone seu, rode `bin/okeanos install` direto. Opções: `--agent claude|codex` (só esse agente; repita ou separe por vírgula), `--dry-run` (mostra o que faria) e `--uninstall` (remove só o que o Okeanos instalou). Para atualizar, rode o mesmo comando de novo: o instalador é idempotente.
+O script clona o repositório em `~/.local/share/okeanos` (ou o atualiza, se já existir) e roda `bin/okeanos install`. Num clone seu, rode `bin/okeanos install` direto. Opções: `--agent claude|codex|cursor` (só esse agente; repita ou separe por vírgula), `--dry-run` (mostra o que faria) e `--uninstall` (remove só o que o Okeanos instalou). Para atualizar, rode o mesmo comando de novo: o instalador é idempotente.
 
 | Agente | O que o instalador faz |
 | :- | :- |
 | Claude Code | `claude plugin marketplace add <clone>` e `claude plugin install okeanos@okeanos`, só se ainda não estiverem. Não mexe nos arquivos de configuração do Claude. |
 | Codex | Liga cada skill em `~/.agents/skills/<nome>` (links para o clone, então um `git pull` atualiza), põe o bloco do processo entre os marcadores `<!-- okeanos:start -->`/`<!-- okeanos:end -->` no `AGENTS.md` global (`$CODEX_HOME`, padrão `~/.codex`) e os hooks em `~/.codex/hooks.json`. |
+| Cursor | Detectado pelo `cursor` ou `cursor-agent` no PATH ou pela pasta `~/.cursor`. Liga as mesmas skills em `~/.agents/skills` e põe os hooks em `~/.cursor/hooks.json` (`"version": 1`). O Cursor não tem arquivo para regras globais (as User Rules ficam só em Customize → Rules), então o processo entra por projeto: `okeanos install --agent cursor --project` na raiz do repositório escreve `.cursor/rules/okeanos.mdc` (`alwaysApply: true`). Ou cole `adapters/agents-md/okeanos.md` em Customize → Rules. |
 | Todos | Liga a CLI `okeanos` em `~/.local/bin` e avisa se essa pasta não está no PATH. |
 
 O instalador só edita o bloco marcado e os hooks cujo comando é o do Okeanos; o resto do arquivo fica como estava. Antes de mudar um arquivo, guarda a versão anterior em `<arquivo>.okeanos-bak`. Se um `hooks.json` ou `config.toml` existente não for JSON ou TOML válido, ele para aquele agente sem escrever nada e diz qual arquivo corrigir. Uma skill do Okeanos cujo nome já existe em `~/.agents/skills` com outro conteúdo é pulada, com aviso.
@@ -52,6 +53,18 @@ O instalador só edita o bloco marcado e os hooks cujo comando é o do Okeanos; 
 - O arquivo de contexto do projeto é o `AGENTS.md`: o `onboard` cria esse arquivo, e não o `CLAUDE.md`.
 - Se existir `~/.codex/AGENTS.override.md`, o Codex lê ele no lugar do `AGENTS.md` global, e o processo do Okeanos não é carregado. O instalador avisa.
 - As skills manuais do Claude Code (`disable-model-invocation`) podem ser escolhidas sozinhas pelo Codex, que não lê esse campo.
+
+**No Cursor, o que muda** (alvo: o agente do Cursor IDE; os hooks do Cursor CLI ficam de fora):
+
+- O processo não é global: rode `okeanos install --agent cursor --project` em cada repositório e commite `.cursor/rules/okeanos.mdc` (ou ponha no `.gitignore`). Depois de atualizar o Okeanos, rode de novo para atualizar a regra. `--project --uninstall` remove.
+- Comandos do shell passam pelo `beforeShellExecution`, que pede confirmação de verdade: push, PR, merge na branch padrão, escrita em teste commitado e pacote suspeito abrem a confirmação do Cursor.
+- Edições pelo editor (`Write`, `StrReplace`, `Delete`) passam pelo `preToolUse`, que não pede confirmação. Ali o Okeanos bloqueia a mudança em teste commitado e a mensagem termina com `Para aprovar: okeanos aprovar <arquivo>`. Um `Write` cujo conteúdo novo o Okeanos não consegue ler conta como reescrita do arquivo inteiro.
+- Se o Cursor editar um arquivo por uma ferramenta que o Okeanos não conhece, nada barra antes da edição. Sobram o `Stop` (que aponta asserção removida ou teste desligado), os git hooks (`okeanos githooks`) e o CI.
+- No fim do turno, com testes falhando, o Okeanos devolve a falha como `followup_message`: o Cursor manda essa mensagem como se fosse sua, e o agente continua (até 3 vezes; o `loop_limit` padrão do Cursor é 5). Turno cancelado ou com erro não é continuado.
+- O `stop` do Cursor não traz a última resposta do agente: o Okeanos guarda o texto do `afterAgentResponse` para reconhecer a linha `**Okeanos** · precisa de você`.
+- Os avisos só para você (escalada depois de 3 tentativas, handoff) não aparecem no Cursor, que não tem campo para isso no `stop`. Veja em `okeanos metrics`.
+- O lembrete de rota da primeira mensagem não existe no Cursor (o `beforeSubmitPrompt` não injeta contexto). O bloco do processo na regra do projeto já pede a rota.
+- Confira em Cursor Settings → Hooks que os hooks do Okeanos aparecem depois de instalar.
 
 ## Problemas que o Okeanos trata
 
@@ -110,7 +123,7 @@ Você pode pular etapas ("pula a entrevista", "só faz"). Os gates continuam val
 
 ## Hooks
 
-No Claude Code, definidos em [`hooks/hooks.json`](hooks/hooks.json); no Codex, escritos pelo instalador em `~/.codex/hooks.json` (`hooks/run --agent codex <hook>`). Implementados em [`hooks/okeanos_engine/`](hooks/okeanos_engine/) (regras neutras e um dialeto por agente), com entrada em [`hooks/okeanos.py`](hooks/okeanos.py).
+No Claude Code, definidos em [`hooks/hooks.json`](hooks/hooks.json); no Codex e no Cursor, escritos pelo instalador em `~/.codex/hooks.json` e `~/.cursor/hooks.json` (`hooks/run --agent codex|cursor <hook>`). Implementados em [`hooks/okeanos_engine/`](hooks/okeanos_engine/) (regras neutras e um dialeto por agente), com entrada em [`hooks/okeanos.py`](hooks/okeanos.py).
 
 | Evento | Comportamento |
 | :- | :- |
@@ -135,7 +148,7 @@ okeanos aprovacoes                   # lista as ativas
 okeanos revogar [alvo]               # remove uma ou todas
 ```
 
-A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE` ou as variáveis `CODEX_*` que o Codex põe no shell das ferramentas), e os hooks bloqueiam o agente que tenta rodá-los ou escrever em `.git/okeanos/`. Segredos, force push, `--no-verify`, `rm -r` fora do repo e pacote inexistente nunca são aprováveis. `okeanos doctor` mostra onde o Okeanos está, o que o repositório tem e quais agentes estão no PATH.
+A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE`, as variáveis `CODEX_*` que o Codex põe no shell das ferramentas ou o `CURSOR_AGENT` do Cursor), e os hooks bloqueiam o agente que tenta rodá-los ou escrever em `.git/okeanos/`. Segredos, force push, `--no-verify`, `rm -r` fora do repo e pacote inexistente nunca são aprováveis. `okeanos doctor` mostra onde o Okeanos está, o que o repositório tem, quais agentes estão no PATH e se os hooks e a regra do projeto do Cursor estão instalados.
 
 ### Git hooks
 
