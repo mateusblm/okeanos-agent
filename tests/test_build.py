@@ -57,3 +57,30 @@ def test_build_writes_agents_md_block_from_process(repo):
     assert lines[-1] == "<!-- okeanos:end -->"
     assert "gerado" in lines[1] and "core/process.md" in lines[1]
     assert PROCESS in block
+
+
+def test_check_passes_right_after_build(repo):
+    run(repo)
+
+    result = run(repo, "--check")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_check_fails_and_lists_stale_files_when_process_changed(repo):
+    run(repo)
+    (repo / "core" / "process.md").write_text(PROCESS + "\nRegra nova.\n", encoding="utf-8")
+
+    result = run(repo, "--check")
+
+    assert result.returncode != 0
+    out = result.stdout + result.stderr
+    assert "output-styles/okeanos.md" in out
+    assert "adapters/agents-md/okeanos.md" in out
+
+
+def test_check_does_not_write_files(repo):
+    result = run(repo, "--check")
+
+    assert result.returncode != 0
+    assert not (repo / "output-styles" / "okeanos.md").exists()
