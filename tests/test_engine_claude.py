@@ -433,3 +433,43 @@ def test_unknown_subcommand_allows():
 def test_outside_a_git_repo_allows(tmp_path):
     assert bash(tmp_path, "git push") [0] == 0
     assert hook("stop", {"session_id": "s", "cwd": str(tmp_path)}) == (0, None)
+
+
+@pytest.mark.parametrize("event", ["pre-bash", "pre-edit", "stop", "prompt"])
+@pytest.mark.parametrize("raw", ["[]", "7", "null", '"text"'])
+def test_non_object_json_allows_without_error(event, raw):
+    assert hook(event, None, raw=raw) == (0, None)
+
+
+@pytest.mark.parametrize("agent", ["no-such-agent", ""])
+def test_unknown_agent_allows(repo, agent):
+    payload = {"session_id": "s1", "cwd": str(repo), "tool_name": "Bash", "tool_input": {"command": "git push --force"}}
+    assert hook(None, payload, argv=["--agent", agent, "pre-bash"]) == (0, None)
+
+
+# ---------------------------------------------------------------------------
+# dialect selection and metrics
+# ---------------------------------------------------------------------------
+
+def test_explicit_claude_agent_flag_matches_default(repo):
+    payload = {"session_id": "s1", "cwd": str(repo), "tool_name": "Bash", "tool_input": {"command": "git push"}}
+    assert hook(None, payload, argv=["--agent", "claude", "pre-bash"]) == hook("pre-bash", payload)
+    assert hook(None, payload, argv=["--agent=claude", "pre-bash"]) == hook("pre-bash", payload)
+
+
+def test_every_metrics_event_names_the_agent(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "exit 1"}]})
+    session_start(repo)
+    bash(repo, "git push")
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    stop(repo)
+    events = metrics(repo)
+    assert {e["kind"] for e in events} >= {"pre-bash:ask", "stop:block"}
+    assert all(e["agent"] == "claude" for e in events)
+
+
+def test_hooks_json_wires_the_claude_dialect():
+    wiring = json.loads((ENGINE.parent / "hooks.json").read_text())
+    commands = [h["command"] for groups in wiring["hooks"].values() for g in groups for h in g["hooks"]
+                if "/hooks/run" in h["command"]]
+    assert commands and all("--agent claude" in c for c in commands)
