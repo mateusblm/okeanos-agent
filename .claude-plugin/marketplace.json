@@ -1,0 +1,15 @@
+{
+  "name": "okeanos",
+  "owner": {
+    "name": "Mateus Burlamaqui Moreira"
+  },
+  "description": "Marketplace local do Okeanos.",
+  "plugins": [
+    {
+      "name": "okeanos",
+      "source": "./",
+      "description": "Fluxo contínuo de desenvolvimento: classifica cada demanda e conduz do alinhamento à entrega.",
+      "category": "engineering"
+    }
+  ]
+}
