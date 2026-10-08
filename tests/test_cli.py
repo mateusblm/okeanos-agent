@@ -37,9 +37,15 @@ def repo(tmp_path):
     return root
 
 
-def env_with(now=NOW, path=None):
-    env = {k: v for k, v in os.environ.items() if not k.startswith("OKEANOS_")}
+AGENT_VARS = ("CLAUDECODE", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_CI", "CODEX_SANDBOX",
+              "CODEX_SANDBOX_NETWORK_DISABLED")
+
+
+def env_with(now=NOW, path=None, extra=None):
+    """The user's own terminal: no agent-session variables (these tests may run inside an agent)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("OKEANOS_") and k not in AGENT_VARS}
     env["OKEANOS_NOW"] = str(now)
+    env.update(extra or {})
     if path is not None:
         env["PATH"] = path
     return env
@@ -52,10 +58,10 @@ def run(cwd, *args, now=NOW, path=None):
     return p.returncode, p.stdout + p.stderr
 
 
-def run_tty(cwd, *args, now=NOW):
+def run_tty(cwd, *args, now=NOW, extra=None):
     """stdin and stdout on a pseudo-terminal, as in the user's own terminal."""
     master, slave = pty.openpty()
-    p = subprocess.Popen([sys.executable, str(CLI), *args], cwd=cwd, env=env_with(now),
+    p = subprocess.Popen([sys.executable, str(CLI), *args], cwd=cwd, env=env_with(now, extra=extra),
                          stdin=slave, stdout=slave, stderr=slave, close_fds=True)
     os.close(slave)
     chunks = []
@@ -99,6 +105,15 @@ def test_approve_without_a_terminal_is_refused(repo):
     code, out = run(repo, "aprovar", "push")
     assert code != 0
     assert "terminal" in out
+    assert not approvals_file(repo).exists()
+
+
+@pytest.mark.parametrize("var", AGENT_VARS)
+@pytest.mark.parametrize("sub", [["aprovar", "push"], ["revogar"]])
+def test_approve_inside_an_agent_session_is_refused_even_with_a_terminal(repo, var, sub):
+    code, out = run_tty(repo, *sub, extra={var: "1"})
+    assert code != 0
+    assert var in out
     assert not approvals_file(repo).exists()
 
 
