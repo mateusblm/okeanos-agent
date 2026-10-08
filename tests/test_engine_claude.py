@@ -210,6 +210,41 @@ def test_typo_of_popular_package_asks(repo, registry):
     assert d == "ask" and "express" in reason
 
 
+@pytest.fixture
+def known_registry(registry):
+    """Real packages are known; anything else answers 404, so a stray token would be denied."""
+    old = {"time": {"created": "2012-01-01T00:00:00Z"}}
+    table = {"https://registry.npmjs.org/lodash": old,
+             "https://api.npmjs.org/downloads/point/last-week/lodash": {"downloads": 10 ** 8},
+             "https://pypi.org/pypi/requests/json": {"releases": {"1.0": [{"upload_time_iso_8601": "2011-01-01T00:00:00Z"}]}}}
+    for tok in ("2>&1", "&>log", "2>", ">", ">>", "<", "/dev/null", "log", "input", "out.txt"):
+        table["https://registry.npmjs.org/" + tok] = 404
+        table[f"https://pypi.org/pypi/{tok}/json"] = 404
+    for name in ("2%3E%261", "%26%3Elog", "2%3E", "%3E", "%3E%3E", "%3C", "%2Fdev%2Fnull"):
+        table["https://registry.npmjs.org/" + name] = 404
+        table[f"https://pypi.org/pypi/{name}/json"] = 404
+    return registry(table)
+
+
+@pytest.mark.parametrize("command", [
+    "npm install lodash 2>&1 | tail -3",
+    "pip install requests > /dev/null",
+    "pip install requests 2>/dev/null",
+    "npm install lodash &>log",
+    "npm install lodash < input",
+    "npm install lodash >> out.txt 2> /dev/null",
+    "pip install requests 2> log",
+])
+def test_redirections_are_not_package_names(repo, known_registry, command):
+    assert bash(repo, command, env=known_registry) == (0, None)
+
+
+def test_real_package_after_a_redirection_is_still_checked(repo, registry):
+    env = registry({"https://registry.npmjs.org/leftpad-hallucinated": 404})
+    d, _ = decision(bash(repo, "npm install 2>/dev/null leftpad-hallucinated", env=env)[1])
+    assert d == "deny"
+
+
 def test_unreachable_registry_allows(repo, registry):
     env = registry({})
     assert bash(repo, "npm install some-package", env=env) == (0, None)
