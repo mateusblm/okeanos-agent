@@ -38,7 +38,7 @@ def repo(tmp_path):
 
 
 AGENT_VARS = ("CLAUDECODE", "CODEX_THREAD_ID", "CODEX_SESSION_ID", "CODEX_CI", "CODEX_SANDBOX",
-              "CODEX_SANDBOX_NETWORK_DISABLED")
+              "CODEX_SANDBOX_NETWORK_DISABLED", "CURSOR_AGENT")
 
 
 def env_with(now=NOW, path=None, extra=None):
