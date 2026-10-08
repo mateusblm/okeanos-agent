@@ -303,7 +303,7 @@ COMMAND_RUNNERS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "eval", "xargs", 
                    "expect", "socat", "su", "runuser", "setsid", "nohup", "env", "timeout", "watch"}
 STATE_READERS = {"cat", "less", "more", "head", "tail", "ls", "jq", "grep", "rg", "wc", "stat", "file", "diff",
                  "git", "echo", "printf"}  # their writes go through redirects, which are checked above
-STATE_MENTION = re.compile(r"(^|[^A-Za-z0-9_])\.git/okeanos(/|\b)|okeanos/approvals\.json")
+STATE_MENTION = re.compile(r"(^|[^A-Za-z0-9_])\.git/(okeanos|hooks)(/|\b)|okeanos/approvals\.json")
 APPROVAL_TEXT = re.compile(r"okeanos[^\s;&|]*['\"]?\s+(\S+\s+)*?['\"]?(aprovar|revogar)\b")
 
 
@@ -315,8 +315,10 @@ def okeanos_program(tok):
 
 def runs_approval(toks, depth=0):
     for i, tok in enumerate(toks):
-        if okeanos_program(tok) and any(t.strip(")`'\"") in APPROVAL_SUBCOMMANDS for t in toks[i + 1:]):
-            return True
+        if okeanos_program(tok):
+            rest = [t.strip(")`'\"") for t in toks[i + 1:]]
+            if any(t in APPROVAL_SUBCOMMANDS for t in rest) or ("githooks" in rest and "--uninstall" in rest):
+                return True
     plain = strip_env_prefix(toks)
     if depth < 3 and plain and os.path.basename(plain[0]) in COMMAND_RUNNERS:
         for tok in plain[1:]:
@@ -331,8 +333,25 @@ def under(path, directory):
 
 
 def touches_okeanos_state(path, state_dir):
+    """Okeanos state and the git hooks dir: both belong to the human."""
     path = os.path.normpath(path)
-    return (state_dir and under(path, state_dir)) or bool(re.search(r"(^|/)\.git/okeanos(/|$)", path))
+    return (state_dir and under(path, state_dir)) or bool(re.search(r"(^|/)\.git/(okeanos|hooks)(/|$)", path))
+
+
+def bypasses_git_hooks(toks):
+    """git config core.hooksPath <value> or git -c core.hooksPath=... (reads such as --get are fine)."""
+    plain = strip_env_prefix(toks)
+    if not plain or os.path.basename(plain[0]) != "git":
+        return False
+    args = plain[1:]
+    if any(a.lower().startswith("core.hookspath=") for a in args):
+        return True
+    if "config" in args:
+        rest = args[args.index("config") + 1:]
+        reading = any(a in ("--get", "--get-all", "--get-regexp", "-l", "--list", "--show-origin") for a in rest)
+        keys = [a for a in rest if not a.startswith("-")]
+        return bool(keys) and keys[0].lower() == "core.hookspath" and len(keys) > 1 and not reading
+    return False
 
 
 def self_approval(event, ctx):
@@ -345,6 +364,8 @@ def self_approval(event, ctx):
         toks = tokens(seg)
         if runs_approval(toks):
             return HUMAN_ONLY.format(what="aprovação pelo agente")
+        if bypasses_git_hooks(toks):
+            return HUMAN_ONLY.format(what="git hooks")
         plain = strip_env_prefix(toks)
         for target in bash_write_targets(seg, plain):
             full = os.path.expanduser(target)
