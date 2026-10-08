@@ -31,15 +31,25 @@ Skip this step if `.sandcastle/main.mts` already exists.
 
 Show the user the filled configuration block and the Dockerfile changes before the first run.
 
-## 2. Launch
+## 2. Pilot, then launch
 
-Start the runner from the repo root in the background:
+Every AFK run starts with a pilot, in the background from the repo root:
 
 ```bash
-.sandcastle/node_modules/.bin/tsx .sandcastle/main.mts <feature-slug>
+.sandcastle/node_modules/.bin/tsx .sandcastle/main.mts <feature-slug> --pilot
 ```
 
-Tell the user it is running, how many tickets are ready now, and that they can leave. Logs go to `.sandcastle/logs/`.
+It runs one round on at most two ready tickets. When it ends, read `.scratch/<feature>/afk-report.md` and the merged diff:
+
+- **Both done, tests green, diff sizes sane**: launch the full run yourself, without waiting for the user (they chose AFK):
+
+  ```bash
+  .sandcastle/node_modules/.bin/tsx .sandcastle/main.mts <feature-slug>
+  ```
+
+- **Anything failed** (baseline red, install broken, verify command wrong, tickets misunderstood): stop. Fix the setup or the tickets, or bring it to the user. A broken setup caught on two tickets costs minutes; caught on twenty, it costs the afternoon.
+
+Tell the user it is running, how many tickets are ready, and that they can leave. Logs go to `.sandcastle/logs/`.
 
 ## 3. Hand back
 

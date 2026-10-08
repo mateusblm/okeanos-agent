@@ -43,8 +43,8 @@ Ele não é um agente de thread principal (`"agent"` no settings) porque isso su
 | Épico | `wayfinder` → `to-spec` → ... |
 | Triagem | `triage` |
 
-- **G1**: aprovação antes de escrever código de produção.
-- **G2**: aprovação antes de push, PR, merge ou deploy.
+- **G1**: aprovação antes de escrever código de produção. Abre com uma pré-checagem de até 10 linhas: critérios de aceitação em EARS (com os casos de erro), nenhuma dúvida em aberto, fora de escopo, modelo de ameaças quando aplicável e tickets de ~200–400 linhas.
+- **G2**: aprovação antes de push, PR, merge ou deploy, garantida por hook. Traz o tamanho do diff, a revisão por severidade, o doc do `as-built` e um checklist curto de estabilidade: evidência de ter rodado a aplicação, changelog, plano de rollback e remoção de feature flags.
 
 Ao abrir uma sessão num repo sem `CLAUDE.md`, um hook avisa o Okeanos e a primeira coisa que ele faz é rodar a skill [`onboard`](skills/engineering/onboard/SKILL.md): lê o projeto (README, manifests, CI, estrutura, testes, convenções) e cria um `CLAUDE.md` enxuto com o que o projeto é, comandos, estrutura, convenções e cuidados.
 
@@ -65,6 +65,10 @@ As regras que mais importam não dependem do modelo lembrar delas: o plugin as a
 | `--no-verify`, force push, `rm -r` fora do repo | Bloqueado. |
 | `git commit` | Procura segredos (chaves AWS, GitHub, Stripe, Anthropic, OpenAI, chaves privadas, `.env`) e bloqueia o commit se achar. |
 | `npm/pnpm/yarn/bun add`, `pip/uv/poetry add`, `cargo add` | Pacote que não existe é bloqueado (nome alucinado); pacote com menos de 30 dias, pouco baixado ou a uma letra de um popular pede confirmação. |
+| Supressão nova (`eslint-disable`, `@ts-ignore`, `as any`, `# noqa`...) | Apontada no fim do turno; o agente precisa justificar para você. |
+| Tudo acima | Registrado em `.git/okeanos/metrics.jsonl` (local, fora do repo), que a `retro` usa para medir em vez de opinar. |
+
+No GitHub, o `setup-okeanos` oferece um workflow (`.github/workflows/okeanos-checks.yml`) que roda os mesmos comandos de pronto, procura segredos (gitleaks), avisa asserções removidas e roda SAST (Semgrep) em PRs, para nada chegar à `main` por fora dos hooks.
 
 Os comandos de cada projeto ficam em `docs/agents/checks.json`, que a skill `onboard` cria na primeira sessão:
 
@@ -106,7 +110,7 @@ Requisitos: Docker, e um token em `.sandcastle/.env` (`claude setup-token`). O t
 
 Todas vivem em [`skills/`](skills/) e são do Okeanos: edite direto.
 
-- **Fluxo** (o Okeanos chama sozinho): `onboard`, `setup-okeanos`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `as-built`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
+- **Fluxo** (o Okeanos chama sozinho): `onboard`, `setup-okeanos`, `threat-model`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `as-built`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
 - **Manuais** (só você chama): `ask-okeanos` (mapa das rotas), `teach`, `wait-what`, `to-questionnaire`, `improve-codebase-architecture`.
 
 ## Licença

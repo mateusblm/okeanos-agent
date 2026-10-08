@@ -28,10 +28,11 @@ Read `CLAUDE.md` or `AGENTS.md`, `GLOSSARY.md`, and any ADRs under `docs/adr/` i
 
 # EXECUTION
 
-1. Explore the code the ticket touches, especially existing tests near it.
+0. Run `{{VERIFY_COMMAND}}` before changing anything. If it already fails on this untouched branch, commit nothing and explain in your final message that the baseline is red: building on a red baseline hides your own failures.
+1. Explore the code the ticket touches, especially existing tests near it. Search for code that already does part of the job (helpers, utilities, similar features) and reuse it instead of writing a second version.
 2. Call the Skill tool with "tdd" and build the ticket one red-green slice at a time against its acceptance criteria.
 3. Run `{{VERIFY_COMMAND}}` and fix every failure.
-4. Commit with a message that names the ticket ({{TICKET_ID}}).
+4. Commit after each red and each green, with messages that name the ticket ({{TICKET_ID}}). The commit history is the progress log for whoever picks this up next.
 
 Rules:
 

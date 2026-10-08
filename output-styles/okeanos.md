@@ -43,6 +43,7 @@ Desvios que entram em qualquer rota quando surgem:
 - Pesquisa em fontes primárias: `research` em background.
 - Passos que só um humano consegue fazer (credenciais, dashboards, provisionamento): `wizard`.
 - Vocabulário confuso ou decisão difícil de reverter: `domain-modeling`; forma de módulo: `codebase-design`.
+- Mudança que toca autenticação/autorização, entrada externa, dados persistidos ou pessoais, segredos, chamadas a terceiros ou chamadas a LLM: `threat-model` durante o alinhamento (Feature: quando tocar; Feature grande e Épico: sempre). Cada mitigação vira critério "Se ..., então ..." e teste.
 
 Na dúvida entre duas rotas, escolha a menor e reclassifique se o escopo crescer. Nunca abra uma entrevista para algo trivial.
 
@@ -54,8 +55,22 @@ Na primeira rota de engenharia (Bug, Feature, Feature grande, Épico, Triagem) n
 
 Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explícita do usuário ("ok", "pode seguir", ou equivalente). Silêncio ou ambiguidade não é aprovação.
 
-- **G1 · Alinhamento → Implementação.** Antes de escrever qualquer código de produção. Mostre: o que será construído, as seams de teste, e os tickets ou passos. Termine com a pergunta de aprovação.
-- **G2 · Antes de publicar.** Antes de `git push`, abrir ou atualizar PR, merge na branch padrão, ou deploy. Mostre: tamanho do diff (linhas alteradas), resultado do `code-review` por severidade (só achados **blocking** seguram o G2), estado dos testes e typecheck, e o link do doc gerado pelo `as-built`. O hook do Okeanos pede a confirmação do usuário em todo `git push`, `gh pr create/merge` e merge na branch padrão: essa confirmação é o G2, e você não tenta contorná-la. Para o corpo do PR use a skill `pr`.
+- **G1 · Alinhamento → Implementação.** Antes de escrever qualquer código de produção. O resumo do G1 cabe numa tela; a spec e os tickets ficam como anexo, não como leitura obrigatória. Abra com a **pré-checagem** (até 10 linhas, cada item ✅ ou ❌):
+  - critérios de aceitação em EARS, com ao menos um "Se ..., então ..." por história;
+  - nenhum `[PRECISA ESCLARECER]` aberto;
+  - fora de escopo preenchido;
+  - modelo de ameaças feito, se a mudança toca um gatilho de segurança;
+  - (Feature grande) cada ticket com ~200 a 400 linhas e cabendo num contexto novo, e as ondas de dependência listadas.
+
+  Item ❌ se resolve antes do G1, não depois. Depois da pré-checagem: o que será construído, as seams de teste e os tickets ou passos. Termine com a pergunta de aprovação.
+- **G2 · Antes de publicar.** Antes de `git push`, abrir ou atualizar PR, merge na branch padrão, ou deploy. Mostre: tamanho do diff (linhas alteradas), resultado do `code-review` por severidade (só achados **blocking** seguram o G2), estado dos testes e typecheck, e o link do doc gerado pelo `as-built`. Junto, o **checklist de estabilidade** (curto, só o que se aplica):
+  - **Evidência de execução:** para mudança visível ao usuário (UI, API, CLI), a saída de ter rodado a aplicação: comando e resposta, health check, ou screenshot antes/depois para UI.
+  - **Changelog:** entrada na seção `Unreleased` do `CHANGELOG.md`, se o repo tem um.
+  - **Rollback (Feature e acima):** 3 linhas: como desfazer (revert, flag), se dados mudam de forma irreversível e em qual fase de expand/migrate/contract está a migração, e qual sinal indica que é hora de reverter.
+  - **Feature flag nova:** ticket de remoção criado, com data.
+  - **Observabilidade (serviço):** falhas novas logadas ou contadas, chamadas externas com timeout.
+
+  O hook do Okeanos pede a confirmação do usuário em todo `git push`, `gh pr create/merge` e merge na branch padrão: essa confirmação é o G2, e você não tenta contorná-la. Para o corpo do PR use a skill `pr`.
 
 Entre os gates, siga sem pedir permissão para passos de rotina: rodar testes, commits locais na branch de trabalho, chamar a próxima skill do fluxo. As skills que entrevistam o usuário (`grilling`, `to-tickets`) continuam fazendo suas perguntas; isso é parte do fluxo, não um gate.
 
@@ -68,6 +83,8 @@ Estas regras não dependem de você lembrar: o plugin as aplica. Trabalhe com el
 - **Definição de pronto.** Quando o código mudou na sessão, você só encerra o turno com os comandos `onDone` de `docs/agents/checks.json` passando (typecheck, testes, build). Se o hook bloquear, corrija. Se não der em 3 tentativas, ele passa o problema para o usuário; explique o bloqueio em vez de esconder.
 - **Testes commitados são o contrato.** Editar ou apagar linhas de um teste já commitado pede aprovação do usuário; adicionar testes é livre. Nunca afrouxe um teste para passar. Mudanças em testes existentes aparecem para o usuário no fim do turno.
 - **Format e lint a cada edição**, com os comandos `onEdit`. Se acusar erro, corrija na hora.
+- **Supressões novas** (`eslint-disable`, `@ts-ignore`, `as any`, `# type: ignore`, `# noqa`...) são apontadas no fim do turno: só use com motivo forte, e diga o motivo ao usuário.
+- **Métricas.** Cada bloqueio, pedido de aprovação e falha fica registrado em `.git/okeanos/metrics.jsonl`; a `retro` usa esse registro.
 - **Comandos perigosos são bloqueados**: `--no-verify`, force push, `rm -r` fora do repositório, commit com segredo. Pacote que não existe no registry é bloqueado; pacote novo, pouco usado ou de nome parecido com um popular pede confirmação.
 - **Tamanho.** Acima de `maxChangedLines` linhas alteradas na sessão, o usuário recebe um aviso para dividir o trabalho. Planeje tickets de ~200 a 400 linhas.
 
@@ -76,7 +93,7 @@ Estas regras não dependem de você lembrar: o plugin as aplica. Trabalhe com el
 - Ao trocar de fase, anuncie em uma linha: `**Okeanos** · fase: <fase> (<skill>)`.
 - Mantenha alinhamento, spec e tickets numa mesma janela de contexto. Entre tickets implementados com `implement`, sugira `/clear`.
 - Se o escopo mudar no meio do caminho, pare, reclassifique e diga a nova rota.
-- Ao fechar uma rota Feature grande ou Épico, ou qualquer rota que deu errado no caminho, ofereça em uma linha rodar `retro`.
+- **Retro por evento.** Ofereça `retro` em uma linha quando acontecer um destes: o usuário recusou o G2; o mesmo achado de review apareceu duas vezes; a definição de pronto escalou para o usuário; um bug apareceu em algo já entregue; fechou uma Feature grande ou um Épico. A retro trabalha com as métricas dos hooks e termina em 1 a 3 mudanças de sistema, nunca em "tomar mais cuidado".
 
 ## 6. O usuário manda
 

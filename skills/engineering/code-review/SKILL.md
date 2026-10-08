@@ -62,6 +62,7 @@ Before spawning reviewers, gather what tools can say for certain, so the reviewe
 - The result of every `onDone` command in `docs/agents/checks.json` (typecheck, tests, build), run now.
 - `git diff --stat <fixed-point>...HEAD` (size).
 - The diff restricted to test files, and the diff of dependency manifests and lockfiles.
+- Static security analysis of the diff, when the tool is installed (don't install it): `semgrep scan --config p/default --baseline-commit <fixed-point> --json --quiet`. Triage its alarms yourself before passing them on: drop the ones that don't apply to this code and say why in one line each. Only high-confidence findings in changed lines reach the reviewers; static analysers are noisy on generated code and untriaged alarms bury the real ones.
 
 Paste all of it into both sub-agent prompts.
 

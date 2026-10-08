@@ -1,7 +1,11 @@
 // Okeanos AFK runner: implements a feature's local tickets in Docker sandboxes.
 //
 // Usage (from the repo root, on the integration branch):
-//   .sandcastle/node_modules/.bin/tsx .sandcastle/main.mts <feature-slug>
+//   .sandcastle/node_modules/.bin/tsx .sandcastle/main.mts <feature-slug> [--pilot]
+//
+// --pilot runs a single round on at most PILOT_SIZE tickets, so a broken
+// setup (image, install, verify command, prompts) fails cheaply before the
+// full fan-out.
 //
 // Each round:
 //   1. Frontier: open tickets in .scratch/<feature>/issues/ whose blockers are
@@ -39,6 +43,7 @@ const MERGE_MODEL = "claude-sonnet-5-5";
 // Max tickets worked at once, and max plan→execute→merge rounds.
 const PARALLEL = 3;
 const MAX_ROUNDS = 10;
+const PILOT_SIZE = 2;
 
 // ---------------------------------------------------------------------------
 
@@ -54,8 +59,9 @@ type Ticket = {
 };
 
 const feature = process.argv[2];
+const pilot = process.argv.includes("--pilot");
 if (!feature) {
-  console.error("Usage: tsx .sandcastle/main.mts <feature-slug>");
+  console.error("Usage: tsx .sandcastle/main.mts <feature-slug> [--pilot]");
   process.exit(1);
 }
 
@@ -137,13 +143,16 @@ const hooks = INSTALL_COMMAND
 const done: string[] = [];
 const failed = new Map<string, string>();
 
-for (let round = 1; round <= MAX_ROUNDS; round++) {
+const rounds = pilot ? 1 : MAX_ROUNDS;
+const width = pilot ? Math.min(PILOT_SIZE, PARALLEL) : PARALLEL;
+
+for (let round = 1; round <= rounds; round++) {
   const tickets = readTickets();
   const doneIds = new Set(tickets.filter((t) => DONE.has(t.status)).map((t) => t.id));
   const frontier = tickets
     .filter((t) => !DONE.has(t.status) && !failed.has(t.id))
     .filter((t) => t.blockedBy.every((b) => doneIds.has(b)))
-    .slice(0, PARALLEL);
+    .slice(0, width);
 
   if (frontier.length === 0) break;
 
@@ -220,7 +229,7 @@ for (let round = 1; round <= MAX_ROUNDS; round++) {
 }
 
 const remaining = readTickets().filter((t) => !DONE.has(t.status));
-const report = `# AFK report: ${feature}
+const report = `# AFK report: ${feature}${pilot ? " (pilot)" : ""}
 
 Integration branch: \`${currentBranch}\`
 

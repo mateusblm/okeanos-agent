@@ -15,7 +15,9 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. If the change touches any of the security triggers listed under **Security** in the template, call the Skill tool with "threat-model" and fold its result into the spec.
+
+4. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 
 <spec-template>
 
@@ -38,6 +40,22 @@ A LONG, numbered list of user stories. Each user story should be in the format o
 </user-story-example>
 
 This list of user stories should be extremely extensive and cover all aspects of the feature.
+
+## Acceptance Criteria
+
+Testable criteria in EARS notation, grouped by user story number. Each criterion becomes at least one test.
+
+- Ubiquitous: `The <system> shall <response>.`
+- Event-driven: `When <trigger>, the <system> shall <response>.`
+- State-driven: `While <state>, the <system> shall <response>.`
+- Optional feature: `Where <feature is included>, the <system> shall <response>.`
+- Unwanted behaviour: `If <unwanted condition>, then the <system> shall <response>.`
+
+Every user story gets at least one **If ... then** criterion: invalid input, failure of a dependency, missing permission, empty state. That one pattern is what forces the error paths into the open before code exists. Write them in the user's language (for Portuguese: `Quando ..., o sistema deve ...`, `Se ..., então o sistema deve ...`).
+
+## Security
+
+Only when the change touches authentication or authorization, external input, persisted or personal data, secrets, network calls to third parties, or LLM calls: the threat model from the `threat-model` skill (at most 15 lines). Each mitigation also appears as an **If ... then** acceptance criterion. Omit the section otherwise.
 
 ## Implementation Decisions
 
@@ -70,5 +88,9 @@ A description of the things that are out of scope for this spec.
 ## Further Notes
 
 Any further notes about the feature.
+
+## Open Questions
+
+Anything the conversation didn't settle, each marked `[NEEDS CLARIFICATION: <question>]` (in Portuguese, `[PRECISA ESCLARECER: <pergunta>]`). Use the same marker inline wherever a requirement depends on the answer. Never guess to fill a gap: a marked question is cheap now, a wrong guess is expensive after the build. The spec can't pass the G1 pre-check while a marker is open.
 
 </spec-template>

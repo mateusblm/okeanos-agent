@@ -74,9 +74,41 @@ POPULAR = {
 }
 
 
+SUPPRESSION = re.compile(
+    r"@ts-(ignore|nocheck|expect-error)|eslint-disable|#\s*type:\s*ignore|#\s*noqa|pylint:\s*disable|"
+    r"\bas any\b|:\s*any\b|<any>|@SuppressWarnings|#\[allow\(|//\s*nolint|#\s*nosec"
+)
+
+CTX = {"root": None, "session": None, "event": None}
+
 # ---------------------------------------------------------------------------
 # plumbing
 # ---------------------------------------------------------------------------
+
+def metrics_path(root):
+    common = git(root, "rev-parse", "--git-common-dir") if root else None
+    if not common:
+        return None
+    if not os.path.isabs(common):
+        common = os.path.join(root, common)
+    d = os.path.join(common, "okeanos")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, "metrics.jsonl")
+
+
+def log_event(kind, detail=""):
+    """Append one event to <git-common-dir>/okeanos/metrics.jsonl for the retro skill."""
+    try:
+        path = metrics_path(CTX["root"])
+        if not path:
+            return
+        branch = git(CTX["root"], "rev-parse", "--abbrev-ref", "HEAD") or ""
+        with open(path, "a") as f:
+            f.write(json.dumps({"ts": int(time.time()), "session": CTX["session"], "branch": branch,
+                                "kind": kind, "detail": str(detail)[:300]}, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
 
 def emit(obj):
     print(json.dumps(obj, ensure_ascii=False))
@@ -84,6 +116,7 @@ def emit(obj):
 
 
 def pre_decision(decision, reason):
+    log_event(f"{CTX['event']}:{decision}", reason.splitlines()[0] if reason else "")
     emit({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
         "permissionDecision": decision,
@@ -493,6 +526,7 @@ def post_edit(data, root):
         if code != 0:
             failures.append(f"[{check.get('name', 'check')}] `{cmd}` falhou:\n{tail(out, 25)}")
     if failures:
+        log_event("post-edit:fail", rel)
         emit({"decision": "block", "reason": "Okeanos: verificação por edição em " + rel + ":\n\n" + "\n\n".join(failures)})
 
 
@@ -552,6 +586,20 @@ def tamper_report(root, base, checks):
     return notes
 
 
+def suppression_report(root, base):
+    if not base:
+        return []
+    notes, current = [], None
+    for line in (git(root, "diff", base, "-U0", "--no-color", timeout=20) or "").splitlines():
+        if line.startswith("+++ b/"):
+            current = line[6:]
+        elif current and line.startswith("+") and not line.startswith("+++") and not is_doc(current):
+            body = line[1:].strip()
+            if SUPPRESSION.search(body):
+                notes.append(f"supressão nova em {current}: {body[:80]}")
+    return notes[:10]
+
+
 def changed_lines(root, base):
     total = 0
     for line in (git(root, "diff", "--numstat", base or "HEAD") or "").splitlines():
@@ -586,7 +634,9 @@ def stop(data, root):
 
     if failures:
         state["blocks"] = state.get("blocks", 0) + 1
+        log_event("stop:block", failures[0].splitlines()[0])
         if state["blocks"] > MAX_BLOCKS:
+            log_event("stop:escalate", failures[0].splitlines()[0])
             state["blocks"] = 0
             state["escalated_fp"] = fp
             save_state(path, state)
@@ -600,20 +650,31 @@ def stop(data, root):
     state["blocks"] = 0
     warnings = []
     tamper = tamper_report(root, base, checks)
+    suppressions = suppression_report(root, base)
     size = changed_lines(root, base)
     limit = int(checks.get("maxChangedLines", DEFAULT_MAX_LINES))
     if size > limit:
         warnings.append(f"{size} linhas alteradas nesta sessão (limite {limit}): considere dividir em tickets menores.")
-    tamper_sig = hashlib.sha256("\n".join(tamper).encode()).hexdigest() if tamper else ""
-    if tamper and state.get("tamper_sig") != tamper_sig:
-        state["tamper_sig"] = tamper_sig
+        if state.get("size_logged") != size // 100:
+            state["size_logged"] = size // 100
+            log_event("stop:size", size)
+    review = tamper + suppressions
+    review_sig = hashlib.sha256("\n".join(review).encode()).hexdigest() if review else ""
+    if review and state.get("tamper_sig") != review_sig:
+        state["tamper_sig"] = review_sig
         save_state(path, state)
-        emit({"decision": "block", "reason": "Okeanos: mudanças em testes existentes nesta sessão:\n- " + "\n- ".join(tamper)
-              + "\nDiga isso ao usuário na sua resposta, com o motivo de cada mudança. Se alguma não foi pedida, desfaça."})
+        for note in review:
+            log_event("stop:tamper" if note in tamper else "stop:suppression", note)
+        emit({"decision": "block", "reason": "Okeanos: pontos que o usuário precisa saber nesta sessão:\n- " + "\n- ".join(review)
+              + "\nNa sua resposta, diga cada um ao usuário com o motivo. Teste afrouxado ou supressão sem motivo forte: desfaça."})
+    if state.get("passed_fp") != fp:
+        log_event("stop:pass", f"{size} linhas")
     state["passed_fp"] = fp
     save_state(path, state)
     if tamper:
         warnings.append("testes alterados: " + "; ".join(tamper))
+    if suppressions:
+        warnings.append(f"{len(suppressions)} supressão(ões) de lint/tipo nova(s)")
     if warnings:
         emit({"systemMessage": "Okeanos: " + "\n".join(warnings)})
 
@@ -640,6 +701,7 @@ def main():
         with open(os.path.expanduser("~/.okeanos-hook-debug.jsonl"), "a") as f:
             f.write(json.dumps({"cmd": sys.argv[1], "data": data}) + "\n")
     root = repo_root(data.get("cwd") or os.getcwd())
+    CTX.update(root=root, session=data.get("session_id"), event=sys.argv[1])
     if not root and sys.argv[1] != "pre-bash":
         sys.exit(0)
     try:

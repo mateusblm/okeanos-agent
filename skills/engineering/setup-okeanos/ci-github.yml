@@ -1,0 +1,73 @@
+# Okeanos checks: the same gates the local hooks enforce, so nothing merges around them.
+name: okeanos-checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # OKEANOS: runtime and dependency install for this stack, e.g.
+      # - uses: actions/setup-node@v4
+      #   with: { node-version: 22, cache: npm }
+      # - run: npm ci
+
+      - name: Definition of done (docs/agents/checks.json onDone)
+        shell: bash
+        run: |
+          fail=0
+          while IFS= read -r cmd; do
+            echo "::group::$cmd"
+            bash -c "$cmd" || { echo "::error::falhou: $cmd"; fail=1; }
+            echo "::endgroup::"
+          done < <(jq -r '.onDone[].cmd' docs/agents/checks.json)
+          exit $fail
+
+      # OKEANOS: dependency audit for this stack, e.g. `npm audit --audit-level=high` or `pip-audit`
+
+      - name: Removed test assertions (warning)
+        if: github.event_name == 'pull_request'
+        shell: bash
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          removed=$(git diff "$base"...HEAD -U0 -- \
+            ':(glob)**/*.test.*' ':(glob)**/*.spec.*' ':(glob)**/test_*.py' ':(glob)**/*_test.*' \
+            ':(glob)**/test/**' ':(glob)**/tests/**' ':(glob)**/__tests__/**' \
+            | grep -E '^-[^-].*\b(expect|assert[A-Za-z]*|should)\b' || true)
+          if [ -n "$removed" ]; then
+            echo "::warning::Asserções removidas ou alteradas neste PR. Confira se foi intencional:"
+            echo "$removed" | head -20
+          fi
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  sast:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    container: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Semgrep on changed code (blocks only on ERROR severity)
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          semgrep scan --config p/default --baseline-commit "${{ github.event.pull_request.base.sha }}" --severity ERROR --error

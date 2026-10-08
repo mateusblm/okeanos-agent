@@ -30,7 +30,15 @@ Use this template for writing the PR body:
 **Blast Radius:** <one-word description>
 
 <optional: potential ramifications of merge>
+
+## Rollback
+
+- **Undo:** <revert this PR / turn off flag `x`>
+- **Data:** <reversible, or which expand/migrate/contract phase this is>
+- **Signal:** <the metric, log or error that means roll back>
 ```
+
+Omit **Rollback** for two-way doors with no data change.
 
 ## Sections
 

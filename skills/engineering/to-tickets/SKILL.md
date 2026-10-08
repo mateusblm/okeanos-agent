@@ -46,6 +46,7 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 - **Title**: short descriptive name
 - **Blocked by**: which other tickets (if any) must complete first
 - **What it delivers**: the end-to-end behaviour this ticket makes work
+- **Wave**: computed from the blocking edges (1 = no blockers)
 
 Ask the user:
 
@@ -76,8 +77,12 @@ Do NOT close or modify any parent issue.
 
 **Status:** ready-for-agent
 
-- [ ] Acceptance criterion 1
-- [ ] Acceptance criterion 2
+**Wave:** the dependency wave (1 = no blockers; N = one more than its deepest blocker). Tickets in the same wave can run in parallel.
+
+Acceptance criteria, copied from the spec's EARS criteria this ticket delivers (each one becomes a test):
+
+- [ ] When <trigger>, the <system> shall <response>.
+- [ ] If <unwanted condition>, then the <system> shall <response>.
 
 </local-ticket-template>
 

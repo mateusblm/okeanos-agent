@@ -11,6 +11,16 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 
 2. Read the primary sources for the session the user specifies. This may mean searching through session logs on this machine. If the user doesn't specify a session, default to the current one.
 
+   Then read the measurements, not impressions. Developers in a 2025 RCT believed AI made them about 20% faster when it made them 19% slower; a retro built on how the session felt repeats that error. The Okeanos hooks log every gate event to `$(git rev-parse --git-common-dir)/okeanos/metrics.jsonl` (one JSON per line: `ts`, `session`, `branch`, `kind`, `detail`). Summarize the period under review by `kind`:
+
+   - `stop:block` / `stop:escalate`: the definition of done failed (which command, how often, whether it reached the user).
+   - `stop:tamper` / `stop:suppression`: tests loosened, lint or type checks silenced.
+   - `stop:size`: sessions that went over the line budget.
+   - `pre-bash:deny` / `pre-bash:ask`, `pre-edit:ask`: dangerous commands, unknown packages, edits to committed tests.
+   - `post-edit:fail`: per-edit lint and format failures.
+
+   Add what git shows: reverts, fix-up commits on the same lines, and CI failures if the repo has CI. A kind that repeats is the strongest candidate for a finding.
+
 3. Look for candidates for improvement in these categories.
 
 - **Navigation**: how easy was it for the agent to find the right files? Are there hidden dependencies between files? Would a **navigation pointer** make it easier? _Use when_ the session took a long time to find a piece of information.
@@ -21,7 +31,9 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 - **No-ops**: look for instructions in steering files that don't modify the agent's behavior. _Use when_ the steering files are large and unwieldy.
 - **Information access**: look for opportunities to increase the agent's access to information. Teeing dev server logs, readonly access to third-party services. _Use when_ a crucial piece of information was not available to the agent.
 
-4. Present these candidates to the user, in order of severity.
+4. Present these candidates to the user, in order of severity, with the measurement behind each one.
+
+5. End with **one to three system changes** the user can approve: a hook or check, a rule in `CODING_STANDARDS.md` or `CLAUDE.md`, a skill edit, a new `checks.json` command. Never "be more careful" or "remember to ...": a lesson that lives only in a promise is lost by the next session. Apply the approved ones.
 
 ## Reference
 

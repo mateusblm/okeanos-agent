@@ -18,7 +18,8 @@ Review branch `{{SOURCE_BRANCH}}` against `{{TARGET_BRANCH}}` and improve it wit
 2. **Standards**: follow @.sandcastle/CODING_STANDARDS.md and the repo's own conventions.
 3. **Tests**: new behaviour is covered through public interfaces, not implementation details.
 4. **Safety**: no injection, credential leaks, unsafe casts, or unchecked assumptions.
-5. **Clarity**: remove needless complexity, dead code, and comments that restate the code. Prefer explicit over clever.
+5. **Reuse**: new code that duplicates something the repo already has (a helper, a utility, a similar function). Replace the copy with the existing one.
+6. **Clarity**: remove needless complexity, dead code, and comments that restate the code. Prefer explicit over clever.
 
 # EXECUTION
 

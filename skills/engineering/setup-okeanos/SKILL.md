@@ -59,6 +59,12 @@ The defaults are the five canonical roles, each label string equal to its name: 
 
 Offer **multi-context** (a root `GLOSSARY-MAP.md` pointing to per-context `GLOSSARY.md` files) only when exploration found monorepo signals. Then confirm which layout they want.
 
+**Section D: CI.** Ask only when the repo has a GitHub remote (`git remote -v`); for another CI, offer the same steps translated to it.
+
+> Explainer: the Okeanos hooks run on your machine. A CI job running the same checks means nothing reaches `main` around them, whoever or whatever opened the PR.
+
+Recommend **yes**. On yes, copy [ci-github.yml](./ci-github.yml) to `.github/workflows/okeanos-checks.yml` and fill its two `OKEANOS:` markers from the repo (runtime setup and install from the lockfile; the dependency audit the ecosystem has). If `docs/agents/checks.json` doesn't exist yet, call the Skill tool with "onboard" first. Leave existing workflows alone. Then tell the user, without doing it yourself, to make `checks` and `secrets` required status checks on the default branch (GitHub → Settings → Branches → branch protection), since that is a repository setting only they should change. The `gitleaks` action is free for personal accounts; organizations need a free license key.
+
 ### 3. Confirm and edit
 
 Show the user a draft of:
