@@ -70,7 +70,9 @@ As regras que mais importam não dependem do modelo lembrar delas: o plugin as a
 
 No GitHub, o `setup-okeanos` oferece um workflow (`.github/workflows/okeanos-checks.yml`) que roda os mesmos comandos de pronto, procura segredos (gitleaks), avisa asserções removidas e roda SAST (Semgrep) em PRs, para nada chegar à `main` por fora dos hooks.
 
-Os comandos de cada projeto ficam em `docs/agents/checks.json`, que a skill `onboard` cria na primeira sessão:
+O Okeanos não depende de linguagem: os comandos de cada projeto (pytest, go test, cargo, gradle, dotnet, npm...) ficam em `docs/agents/checks.json`, que a skill `onboard` cria na primeira sessão. A detecção de testes, `skip` e supressões cobre JS/TS, Python, Go, Java/Kotlin/Scala, C#, Swift, Ruby, PHP, Elixir, Dart e Rust; o guard de pacotes verifica npm, PyPI, crates.io, RubyGems, Packagist, NuGet e módulos Go. A única exigência de linguagem fica no AFK: o runner usa o Sandcastle, uma biblioteca Node, então a máquina precisa de Node; o projeto em si pode ser de qualquer linguagem, com o runtime adicionado à imagem Docker.
+
+Exemplo de `checks.json`:
 
 ```json
 {

@@ -29,21 +29,25 @@ MAX_BLOCKS = 3
 DEFAULT_MAX_LINES = 400
 
 TEST_PATTERNS = [
-    r"(^|/)(test|tests|__tests__|spec|specs)/",
-    r"\.(test|spec)\.[cm]?[jt]sx?$",
+    r"(^|/)(test|tests|__tests__|spec|specs|Tests|androidTest|testFixtures)/",
+    r"\.(test|spec)\.[A-Za-z]+$",  # foo.test.ts, foo.spec.js, foo.test.py...
     r"(^|/)test_[^/]+\.py$",
-    r"_test\.(py|go)$",
-    r"(Test|Tests|Spec)\.(java|kt|cs|swift)$",
-    r"_spec\.rb$",
+    r"_(test|spec)\.(py|go|rb|exs|lua|dart|cpp|cc|c)$",
+    r"(Test|Tests|Spec|IT)\.(java|kt|kts|scala|cs|fs|swift|php|groovy)$",
 ]
 
 DOC_PATTERNS = [r"\.(md|mdx|txt|rst)$", r"(^|/)docs/", r"(^|/)\.scratch/", r"(^|/)CHANGELOG"]
 LOCKFILES = r"(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|uv\.lock|Cargo\.lock|go\.sum)$"
 
 SKIP_MARKERS = re.compile(
-    r"\.(skip|only)\(|\b(xit|xdescribe|xtest)\(|@pytest\.mark\.skip|@unittest\.skip|\bt\.Skip\(|#\[ignore\]|@Disabled|@Ignore"
+    r"\.(skip|only)\(|\b(xit|xdescribe|xtest|fit|fdescribe)\(|@pytest\.mark\.(skip|xfail)|@unittest\.skip|"
+    r"\bpytest\.skip\(|\bt\.Skip(Now|f)?\(|#\[ignore\]|@Disabled|@Ignore|\[Ignore\]|\[Fact\(Skip|"
+    r"markTestSkipped|@tag\s+:skip|^pending\b|^skip\s*\(|@Skip"
 )
-ASSERTION = re.compile(r"\b(expect|assert\w*|should)\b|\.to(Be|Equal|Throw|Match|Have)|\bt\.(Error|Fatal)")
+ASSERTION = re.compile(
+    r"\b(expect|assert\w*|should|verify|require\.\w+)\b|\.to(Be|Equal|Throw|Match|Have|Contain)|"
+    r"\bt\.(Error|Fatal)|\bAssert\.\w+|\$this->assert|\bXCTAssert\w*|\bassert!|\bassert_eq!|\bshouldBe\b|\bexpectThat\b"
+)
 
 SECRET_PATTERNS = [
     ("AWS access key", r"AKIA[0-9A-Z]{16}"),
@@ -75,8 +79,10 @@ POPULAR = {
 
 
 SUPPRESSION = re.compile(
-    r"@ts-(ignore|nocheck|expect-error)|eslint-disable|#\s*type:\s*ignore|#\s*noqa|pylint:\s*disable|"
-    r"\bas any\b|:\s*any\b|<any>|@SuppressWarnings|#\[allow\(|//\s*nolint|#\s*nosec"
+    r"@ts-(ignore|nocheck|expect-error)|eslint-disable|biome-ignore|#\s*type:\s*ignore|#\s*noqa|pylint:\s*disable|"
+    r"#\s*pyright:\s*ignore|\bas any\b|:\s*any\b|<any>|@SuppressWarnings|@Suppress\(|#\[allow\(|"
+    r"//\s*nolint|#\s*nosec|rubocop:disable|@phpstan-ignore|@psalm-suppress|#pragma warning disable|"
+    r"SuppressMessage|NOSONAR|swiftlint:disable|//\s*@ts-|#\s*noinspection"
 )
 
 CTX = {"root": None, "session": None, "event": None}
@@ -329,6 +335,18 @@ def package_requests(toks):
         eco, names = "pypi", args[1:]
     elif tool == "cargo" and args[:1] == ["add"]:
         eco, names = "crates", args[1:]
+    elif tool == "gem" and args[:1] == ["install"]:
+        eco, names = "rubygems", args[1:]
+    elif tool == "bundle" and args[:1] == ["add"]:
+        eco, names = "rubygems", args[1:]
+    elif tool == "composer" and args[:1] == ["require"]:
+        eco, names = "packagist", args[1:]
+    elif tool == "go" and args[:1] in (["get"], ["install"]):
+        eco, names = "go", args[1:]
+    elif tool == "dotnet" and args[:2] == ["add", "package"]:
+        eco, names = "nuget", args[2:]
+    elif tool == "dotnet" and len(args) >= 3 and args[0] == "add" and args[2] == "package":
+        eco, names = "nuget", args[3:]
     if not eco:
         return []
     out, skip_next = [], False
@@ -343,6 +361,12 @@ def package_requests(toks):
             continue
         if eco == "npm":
             name = re.sub(r"(?<=.)@[^@/]*$", "", a)
+        elif eco == "go":
+            name = a.split("@", 1)[0]
+            if name in ("./...", "all") or not re.match(r"^[a-z0-9.-]+\.[a-z]+/", name):
+                continue
+        elif eco == "packagist":
+            name = a.split(":", 1)[0]
         else:
             name = re.split(r"[=<>!~\[;@ ]", a, maxsplit=1)[0]
         if name:
@@ -391,11 +415,28 @@ def check_package(eco, name):
             meta = fetch_json(f"https://pypi.org/pypi/{urllib.parse.quote(name)}/json")
             uploads = [f.get("upload_time_iso_8601", "") for files in meta.get("releases", {}).values() for f in files]
             created = min((u for u in uploads if u), default="")
-        else:
+        elif eco == "crates":
             meta = fetch_json(f"https://crates.io/api/v1/crates/{urllib.parse.quote(name)}")
             created = (meta.get("crate") or {}).get("created_at", "")
+        elif eco == "rubygems":
+            meta = fetch_json(f"https://rubygems.org/api/v1/gems/{urllib.parse.quote(name)}.json")
+            created = ""
+            if meta.get("downloads", 0) < 1000:
+                concerns.append(f"{meta.get('downloads', 0)} downloads no total")
+        elif eco == "packagist":
+            meta = fetch_json(f"https://repo.packagist.org/p2/{urllib.parse.quote(name)}.json")
+            created = ""
+        elif eco == "nuget":
+            fetch_json(f"https://api.nuget.org/v3-flatcontainer/{urllib.parse.quote(name.lower())}/index.json")
+            created = ""
+        elif eco == "go":
+            # The module proxy answers 404/410 for modules that don't exist.
+            fetch_json(f"https://proxy.golang.org/{urllib.parse.quote(name.lower())}/@latest")
+            created = ""
+        else:
+            return None
     except urllib.error.HTTPError as e:
-        if e.code == 404:
+        if e.code in (404, 410):
             return ("deny", f"Okeanos: o pacote `{name}` não existe em {eco}. Pode ser um nome alucinado; confira o nome certo antes de instalar.")
         return None
     except Exception:  # noqa: BLE001

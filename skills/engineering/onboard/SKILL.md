@@ -88,11 +88,23 @@ From the commands you confirmed (or from `CLAUDE.md` when it already existed), w
 }
 ```
 
+The same shape for other stacks (use what the project really has):
+
+| Stack | `onEdit` | `onDone` |
+| :- | :- | :- |
+| Python | `ruff format {file}`, `ruff check {file}` (`.py`) | `mypy .` or `pyright`, `pytest -q` |
+| Go | `gofmt -w {file}` (`.go`) | `go vet ./...`, `go test ./...` |
+| Rust | `rustfmt {file}` (`.rs`) | `cargo clippy -- -D warnings`, `cargo test` |
+| Java/Kotlin | (none, formatting runs in the build) | `./gradlew check` or `mvn -q verify` |
+| C# | `dotnet format --include {file}` | `dotnet build`, `dotnet test` |
+| Ruby | `bundle exec rubocop -a {file}` (`.rb`) | `bundle exec rspec` |
+| PHP | `vendor/bin/php-cs-fixer fix {file}` (`.php`) | `vendor/bin/phpstan`, `vendor/bin/phpunit` |
+
 - `onEdit` runs after every edit on the edited file (`{file}` is replaced by its path). Only per-file commands that finish in seconds: formatter, linter. Use `ext` so a linter never runs on a file it can't parse. Leave it empty when the project has neither.
 - `onDone` runs before the agent may stop, whenever code changed in the session: typecheck, tests, build. A failing command blocks the stop and its output goes back to the agent.
 - Use the project's own scripts and the exact commands CI runs. Never add a tool the project doesn't already use.
 - `maxChangedLines` is the size budget per session; above it the user gets a warning to split the work. Keep 400 unless the user says otherwise.
-- Optional `testPatterns`: extra regexes that identify test files when the project uses an unusual layout.
+- Optional `testPatterns`: extra regexes that identify test files when the project uses an unusual layout. The defaults cover the usual layouts of JS/TS, Python, Go, Java/Kotlin/Scala, C#, Swift, Ruby, PHP, Elixir, Dart and Rust's `tests/` folder. Tests written inline in source files (Rust `#[cfg(test)]` modules) aren't recognised as test files, so the committed-test guard doesn't cover them; say so to the user when the project relies on them.
 
 ## 4. Hand back
 
