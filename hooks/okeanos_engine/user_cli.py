@@ -11,7 +11,7 @@ import shutil
 import sys
 import time
 
-from . import approvals
+from . import approvals, githooks
 from .cli import metrics_summary
 from .plumbing import git, repo_root
 
@@ -118,8 +118,18 @@ def cmd_metrics(args):
 
 
 def cmd_githooks(args):
-    print("okeanos githooks: ainda não disponível; chega num ticket futuro (git hooks por projeto).", file=sys.stderr)
-    return 2
+    root = current_repo()
+    if not root:
+        return 1
+    if args.uninstall:
+        return githooks.uninstall(root)
+    cli = os.path.join(os.path.realpath(plugin_root()), "bin", "okeanos")
+    return githooks.install(root, cli)
+
+
+def cmd_githook(args):
+    """Called by the installed git hooks, not by people."""
+    return githooks.run_hook(args.hook)
 
 
 def cmd_doctor(args):
@@ -156,7 +166,16 @@ def parser():
     m = sub.add_parser("metrics", help="eventos dos hooks por tipo e por agente")
     m.add_argument("dias", nargs="?", type=int, default=30)
     m.set_defaults(func=cmd_metrics)
-    sub.add_parser("githooks", help="instala git hooks no repositório (em breve)").set_defaults(func=cmd_githooks)
+    g = sub.add_parser("githooks", help="instala os git hooks do Okeanos (pre-commit, pre-push) neste repositório",
+                       description="pre-commit: barra segredos e testes commitados afrouxados sem `okeanos aprovar`, "
+                                   "avisa de supressões novas. pre-push: roda os comandos onDone de "
+                                   "docs/agents/checks.json. Hooks que já existiam são mantidos e rodam antes.")
+    g.add_argument("--uninstall", action="store_true", help="remove os hooks do Okeanos e devolve os anteriores")
+    g.set_defaults(func=cmd_githooks)
+    h = sub.add_parser("githook")  # no help: internal, run by the installed hooks
+    h.add_argument("hook", choices=githooks.HOOKS)
+    h.add_argument("rest", nargs=argparse.REMAINDER)
+    h.set_defaults(func=cmd_githook)
     sub.add_parser("doctor", help="mostra onde o Okeanos está e o que encontra aqui").set_defaults(func=cmd_doctor)
     return p
 
