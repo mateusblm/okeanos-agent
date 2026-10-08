@@ -189,11 +189,6 @@ def test_metrics_without_data(repo):
     assert code == 0 and "Sem métricas" in out
 
 
-def test_githooks_is_not_there_yet(repo):
-    code, out = run(repo, "githooks")
-    assert code == 2 and out.strip()
-
-
 def test_doctor_reports_repo_and_agents(repo, tmp_path):
     fake_bin = tmp_path / "fakebin"
     fake_bin.mkdir()
