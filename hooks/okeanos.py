@@ -26,6 +26,7 @@ import urllib.parse
 import urllib.request
 
 MAX_BLOCKS = 3
+HANDOFF_MARK = "**Okeanos** · precisa de você"
 DEFAULT_MAX_LINES = 400
 
 TEST_PATTERNS = [
@@ -220,7 +221,34 @@ def session_start(data, root):
 # ---------------------------------------------------------------------------
 
 def split_segments(command):
-    return [s.strip() for s in re.split(r"&&|\|\||;|\||\n", command) if s.strip()]
+    """Split on unquoted &&, ||, ;, | and newlines (separators inside quotes stay put)."""
+    segments, buf, quote, i = [], [], None, 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            if ch == "\\" and quote == '"' and i + 1 < len(command):
+                buf.append(command[i:i + 2])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            buf.append(ch)
+        elif ch in "'\"":
+            quote = ch
+            buf.append(ch)
+        elif command.startswith(("&&", "||"), i):
+            segments.append("".join(buf))
+            buf = []
+            i += 2
+            continue
+        elif ch in ";|\n":
+            segments.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+        i += 1
+    segments.append("".join(buf))
+    return [s.strip() for s in segments if s.strip()]
 
 
 def tokens(segment):
@@ -461,6 +489,44 @@ def check_package(eco, name):
     return None
 
 
+WRITE_TOOLS_INPLACE = {"sed": ("-i", "--in-place"), "perl": ("-i", "-pi", "-pie", "-p -i")}
+
+
+def bash_write_targets(segment, toks):
+    """Paths a shell segment writes, moves or deletes (best effort)."""
+    targets = [m.group(1) for m in re.finditer(r"(?:^|[^<>&0-9])>>?\s*([^\s;&|<>]+)", segment)]
+    if not toks:
+        return targets
+    tool, args = toks[0], toks[1:]
+    if tool == "sed" and any(a == "--in-place" or a.startswith("-i") for a in args):
+        targets += [a for a in args if not a.startswith("-")][1:]
+    elif tool == "perl" and any(a.startswith("-") and "i" in a for a in args):
+        targets += [a for a in args if not a.startswith("-")][1:]
+    elif tool == "awk" and "inplace" in args:
+        targets += [a for a in args if not a.startswith("-") and a != "inplace"][1:]
+    elif tool in ("tee", "truncate", "rm"):
+        targets += [a for a in args if not a.startswith("-")]
+    elif tool in ("mv", "cp") and args:
+        plain = [a for a in args if not a.startswith("-")]
+        targets += plain if tool == "mv" else plain[-1:]
+    elif tool == "git" and args[:1] == ["rm"]:
+        targets += [a for a in args[1:] if not a.startswith("-")]
+    return targets
+
+
+def committed_tests_touched(root, cwd, targets):
+    checks = load_checks(root)
+    hit = []
+    for target in targets:
+        full = os.path.normpath(target if os.path.isabs(target) else os.path.join(cwd or root, target))
+        if not full.startswith(root + os.sep):
+            continue
+        rel = os.path.relpath(full, root)
+        if is_test(rel, checks) and git(root, "cat-file", "-e", f"HEAD:{rel}") is not None:
+            hit.append(rel)
+    return sorted(set(hit))
+
+
 def pre_bash(data, root):
     command = (data.get("tool_input") or {}).get("command", "")
     if not command:
@@ -474,6 +540,12 @@ def pre_bash(data, root):
                 pre_decision(*result)
             elif result:
                 asks.append(result[1])
+        if root:
+            touched = committed_tests_touched(root, data.get("cwd"), bash_write_targets(seg, toks))
+            if touched:
+                asks.append("Okeanos: este comando escreve, move ou apaga teste(s) já commitado(s): "
+                            + ", ".join(touched) + ". Testes commitados são o contrato: mudar exige a sua aprovação. "
+                            "Adicionar testes novos não pede; prefira a ferramenta Edit para mudanças pontuais.")
         if root and toks[:2] == ["git", "commit"]:
             secrets = scan_secrets(root)
             if secrets:
@@ -502,11 +574,18 @@ def significant(text):
     return [l.strip() for l in text.splitlines() if l.strip()]
 
 
+def norm_code(text):
+    """Formatting-insensitive form: no whitespace, no trailing commas, one quote style.
+    A formatter splitting an assertion over several lines doesn't change it."""
+    s = re.sub(r"\s+", "", text).replace("'", '"')
+    return re.sub(r",([)\]}])", r"\1", s)
+
+
 def protected_lines_removed(old_text, new_text):
-    """Assertion or test-definition lines present before and gone after the edit."""
-    remaining = set(significant(new_text))
+    """Assertion or test-definition lines present before and gone (not just reformatted) after the edit."""
+    remaining = norm_code(new_text)
     return [l for l in significant(old_text)
-            if l not in remaining and (ASSERTION.search(l) or TEST_DEF.search(l))]
+            if (ASSERTION.search(l) or TEST_DEF.search(l)) and norm_code(l) not in remaining]
 
 
 def pre_edit(data, root):
@@ -623,7 +702,8 @@ def tamper_report(root, base, checks):
             elif line.startswith("-") and not line.startswith("---"):
                 removed.setdefault(current, []).append(line[1:].strip())
     for rel, lines in removed.items():
-        gone = [l for l in lines if ASSERTION.search(l) and l not in added.get(rel, [])]
+        now = norm_code("\n".join(added.get(rel, [])))
+        gone = [l for l in lines if ASSERTION.search(l) and norm_code(l) not in now]
         if gone:
             notes.append(f"{len(gone)} asserção(ões) removida(s) ou alterada(s) em {rel}")
     return notes
@@ -675,6 +755,15 @@ def stop(data, root):
         if code != 0:
             failures.append(f"[{check.get('name', 'check')}] `{cmd}` falhou:\n{tail(out)}")
 
+    if failures and HANDOFF_MARK in (data.get("last_assistant_message") or ""):
+        # The agent says the fix needs a user decision: stop now, but make the failure visible.
+        state["blocks"] = 0
+        state["escalated_fp"] = fp
+        save_state(path, state)
+        log_event("stop:handoff", failures[0].splitlines()[0])
+        emit({"systemMessage": "Okeanos: o agente parou com a definição de pronto falhando porque a correção "
+              "depende de uma decisão sua:\n\n" + "\n\n".join(failures)})
+
     if failures:
         state["blocks"] = state.get("blocks", 0) + 1
         log_event("stop:block", failures[0].splitlines()[0])
@@ -687,7 +776,9 @@ def stop(data, root):
                   f"{MAX_BLOCKS} vezes seguidas e precisa de você:\n\n" + "\n\n".join(failures)})
         save_state(path, state)
         emit({"decision": "block", "reason": "Okeanos · definição de pronto: corrija antes de encerrar "
-              f"(tentativa {state['blocks']}/{MAX_BLOCKS}). Se não der para corrigir, explique o bloqueio ao usuário.\n\n"
+              f"(tentativa {state['blocks']}/{MAX_BLOCKS}). Se a correção depende de uma decisão do usuário "
+              f"(por exemplo, mudar um teste commitado ou uma regra de produto), não force: explique a decisão "
+              f"e termine sua resposta com a linha `{HANDOFF_MARK}`.\n\n"
               + "\n\n".join(failures)})
 
     state["blocks"] = 0
@@ -723,8 +814,28 @@ def stop(data, root):
 
 
 # ---------------------------------------------------------------------------
+# prompt: first message of a session gets the route reminder
+# ---------------------------------------------------------------------------
+
+def prompt(data, root):
+    path = state_path(root, data.get("session_id"))
+    if not path:
+        return
+    state = load_state(path)
+    if state.get("route_reminded"):
+        return
+    state["route_reminded"] = True
+    save_state(path, state)
+    emit({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext":
+          "Okeanos: antes de agir nesta demanda, classifique a rota e anuncie em uma linha "
+          "(**Okeanos** · rota: <Direto|Bug|Feature|Feature grande|Épico|Triagem> · <motivo>). "
+          "Perguntas puras dispensam o anúncio."}})
+
+
+# ---------------------------------------------------------------------------
 
 HANDLERS = {
+    "prompt": prompt,
     "session-start": session_start,
     "pre-bash": pre_bash,
     "pre-edit": pre_edit,

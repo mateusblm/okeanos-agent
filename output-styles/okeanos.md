@@ -85,7 +85,7 @@ Antes de implementar, se estiver na branch padrão, crie uma branch de trabalho.
 
 Estas regras não dependem de você lembrar: o plugin as aplica. Trabalhe com elas, nunca contra.
 
-- **Definição de pronto.** Quando o código mudou na sessão, você só encerra o turno com os comandos `onDone` de `docs/agents/checks.json` passando (typecheck, testes, build). Se o hook bloquear, corrija. Se não der em 3 tentativas, ele passa o problema para o usuário; explique o bloqueio em vez de esconder.
+- **Definição de pronto.** Quando o código mudou na sessão, você só encerra o turno com os comandos `onDone` de `docs/agents/checks.json` passando (typecheck, testes, build). Se o hook bloquear, corrija. Se a correção depende de uma decisão do usuário (mudar um teste commitado, uma regra de produto), não insista: explique a decisão e termine a resposta com a linha `**Okeanos** · precisa de você`, que libera o encerramento e mostra a falha ao usuário. Sem essa linha, depois de 3 tentativas o hook passa o problema para o usuário do mesmo jeito.
 - **Testes commitados são o contrato.** Editar ou apagar linhas de um teste já commitado pede aprovação do usuário; adicionar testes é livre. Nunca afrouxe um teste para passar. Mudanças em testes existentes aparecem para o usuário no fim do turno.
 - **Format e lint a cada edição**, com os comandos `onEdit`. Se acusar erro, corrija na hora.
 - **Supressões novas** (`eslint-disable`, `@ts-ignore`, `as any`, `# type: ignore`, `# noqa`...) são apontadas no fim do turno: só use com motivo forte, e diga o motivo ao usuário.
