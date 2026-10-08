@@ -39,7 +39,7 @@ Ele não é um agente de thread principal (`"agent"` no settings) porque isso su
 | Direto | pergunta ou mudança trivial, sem processo |
 | Bug | `tdd` (regressão) ou `diagnosing-bugs` → `code-review` → **G2** |
 | Feature | `grill-with-docs` → **G1** → `implement` → `as-built` → **G2** |
-| Feature grande | `grill-with-docs` → `to-spec` → `to-tickets` → **G1** → `implement-spec` ou `afk` → `code-review` → `as-built` → **G2** |
+| Feature grande | `grill-with-docs` → `to-spec` → `to-tickets` → **G1** → `implement-spec` ou `afk` → `mutation-check` / `property-tests` → `code-review` → `as-built` → **G2** |
 | Épico | `wayfinder` → `to-spec` → ... |
 | Triagem | `triage` |
 
@@ -110,8 +110,12 @@ Requisitos: Docker, e um token em `.sandcastle/.env` (`claude setup-token`). O t
 
 Todas vivem em [`skills/`](skills/) e são do Okeanos: edite direto.
 
-- **Fluxo** (o Okeanos chama sozinho): `onboard`, `setup-okeanos`, `threat-model`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `as-built`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
+- **Fluxo** (o Okeanos chama sozinho): `onboard`, `setup-okeanos`, `threat-model`, `mutation-check`, `property-tests`, `grill-with-docs`, `grill-me`, `grilling`, `domain-modeling`, `to-spec`, `to-tickets`, `implement`, `implement-spec`, `afk`, `as-built`, `tdd`, `diagnosing-bugs`, `code-review`, `pr`, `wayfinder`, `triage`, `retro`, `handoff`, `prototype`, `research`, `codebase-design`, `wizard`, `writing-for-agents`.
 - **Manuais** (só você chama): `ask-okeanos` (mapa das rotas), `teach`, `wait-what`, `to-questionnaire`, `improve-codebase-architecture`.
+
+## Manutenção
+
+Cada etapa do Okeanos é uma aposta sobre o que o modelo não faz bem sozinho. [`docs/manutencao.md`](docs/manutencao.md) descreve como medir com as métricas dos hooks (`hooks/run metrics 30`) e como podar uma etapa por vez quando os modelos melhorarem.
 
 ## Licença
 

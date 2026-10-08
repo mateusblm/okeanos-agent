@@ -62,6 +62,11 @@ Not feature work, just upkeep.
 
 - **`/improve-codebase-architecture`** runs whenever you have a spare moment to keep the codebase good for agents to operate in. It surfaces **deepening opportunities**; picking one _generates an idea_ you can take into the main flow at `/grill-with-docs`. It's the survey that finds the candidates; **`/codebase-design`** (below) is the bench you design the chosen one on.
 
+## Test strength
+
+- **`/mutation-check`**: mutation testing on the changed lines only; each surviving mutant becomes a new test. For big features, epics and critical logic, after implementation and before `/code-review`.
+- **`/property-tests`**: property-based tests derived from the spec's invariants by a separate agent that never sees the implementation. For domain logic in big features and epics.
+
 ## Security
 
 - **`/threat-model`**: a 15-line threat model (the four Threat Modeling Manifesto questions, STRIDE as prompts) run during alignment whenever a change touches auth, external input, stored or personal data, secrets, third-party calls or LLM calls. Each mitigation becomes an "If ... then" acceptance criterion and a test.

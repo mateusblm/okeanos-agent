@@ -57,6 +57,14 @@ Every user story gets at least one **If ... then** criterion: invalid input, fai
 
 Only when the change touches authentication or authorization, external input, persisted or personal data, secrets, network calls to third parties, or LLM calls: the threat model from the `threat-model` skill (at most 15 lines). Each mitigation also appears as an **If ... then** acceptance criterion. Omit the section otherwise.
 
+## Non-Functional Checks
+
+Only the lines that apply; omit the section when none does. Each one becomes an acceptance criterion or a G2 checklist item.
+
+- **Service or API**: which new failures are logged or counted, which external calls get a timeout, and the SLI that would show this feature broken in production (e.g. "share of `POST /calc` answered 2xx in under 300 ms").
+- **UI**: accessibility (every control has a label, works by keyboard, contrast passes WCAG AA) and the performance budget (bundle size growth, largest contentful paint) if the project has one.
+- **Data**: migration plan (expand → migrate → contract), and whether it's reversible.
+
 ## Implementation Decisions
 
 A list of implementation decisions that were made. This can include:

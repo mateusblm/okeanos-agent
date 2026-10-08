@@ -62,6 +62,7 @@ Before spawning reviewers, gather what tools can say for certain, so the reviewe
 - The result of every `onDone` command in `docs/agents/checks.json` (typecheck, tests, build), run now.
 - `git diff --stat <fixed-point>...HEAD` (size).
 - The diff restricted to test files, and the diff of dependency manifests and lockfiles.
+- Duplication and complexity of the new code only, when the tools are installed (don't install them): `jscpd` on the changed files, `lizard` (or the language's complexity linter) on the changed functions. Report only clones and complexity that this diff introduced.
 - Static security analysis of the diff, when the tool is installed (don't install it): `semgrep scan --config p/default --baseline-commit <fixed-point> --json --quiet`. Triage its alarms yourself before passing them on: drop the ones that don't apply to this code and say why in one line each. Only high-confidence findings in changed lines reach the reviewers; static analysers are noisy on generated code and untriaged alarms bury the real ones.
 
 Paste all of it into both sub-agent prompts.
@@ -75,7 +76,7 @@ Issue both sub-agent calls together, in the foreground, and aggregate the report
 - The full diff command and commit list.
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
 - The deterministic signals from step 3b.
-- The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
+- The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); (b) any baseline smell you spot: name it and quote the hunk; and (c) reuse: new code that re-implements something the repo already has (search the repo for helpers, utilities and similar functions before calling something new), naming the existing code to use instead. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
 
 **Spec sub-agent prompt** should include:
 

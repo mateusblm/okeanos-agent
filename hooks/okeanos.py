@@ -408,7 +408,9 @@ def check_package(eco, name):
                 concerns.append(f"publicado há {age} dias")
         except Exception:  # noqa: BLE001
             pass
-    base = name.split("/")[-1].lower()
+    # Compare the full name: a scoped package (@org/core) is not a typo of an
+    # unscoped one (cors); its scope already says who publishes it.
+    base = name.lower()
     for pop in POPULAR.get(eco, "").split():
         if base != pop and edit_distance(base, pop) == 1:
             concerns.append(f"nome a uma letra de `{pop}`")
@@ -690,7 +692,34 @@ HANDLERS = {
 }
 
 
+def metrics_summary(days):
+    """Print event counts per kind for the current repo (used by retro and harness pruning)."""
+    root = repo_root(os.getcwd())
+    path = metrics_path(root) if root else None
+    if not path or not os.path.exists(path):
+        print("Sem métricas do Okeanos neste repositório ainda.")
+        return
+    since = time.time() - days * 86400
+    counts, sessions = {}, set()
+    with open(path) as f:
+        for line in f:
+            try:
+                e = json.loads(line)
+            except Exception:  # noqa: BLE001
+                continue
+            if e.get("ts", 0) < since:
+                continue
+            counts[e.get("kind", "?")] = counts.get(e.get("kind", "?"), 0) + 1
+            sessions.add(e.get("session"))
+    print(f"Okeanos, últimos {days} dias, {len(sessions)} sessões ({path}):")
+    for kind, n in sorted(counts.items(), key=lambda kv: -kv[1]):
+        print(f"  {n:5d}  {kind}")
+
+
 def main():
+    if len(sys.argv) >= 2 and sys.argv[1] == "metrics":
+        metrics_summary(int(sys.argv[2]) if len(sys.argv) > 2 else 30)
+        return
     if len(sys.argv) < 2 or sys.argv[1] not in HANDLERS:
         sys.exit(0)
     try:

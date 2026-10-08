@@ -192,6 +192,12 @@ Layout:
 
 Omit any empty section except **O que foi construído**, **Onde se encaixa na arquitetura** and **Como funciona**.
 
+## 4b. Drift and the spec
+
+**Doc drift.** List the paths this change touched and the modules they belong to. Search `docs/`, `docs/adr/`, `README*` and `CLAUDE.md` for mentions of those modules, functions, commands and file paths. Anything that now describes the old behaviour (a renamed module, a removed command, a flow that changed) gets fixed in the same commit. Anything you're unsure about goes into the G2 summary as "possível doc desatualizado: <arquivo>: <trecho>". An ADR whose decision this change contradicts is never edited silently: flag it to the user, since superseding an ADR is their call.
+
+**The spec's fate.** Once the as-built docs exist, they describe what is; the spec described what was intended. Archive the spec instead of maintaining two sources: add at its top `> Implementada em <data>. O estado atual está em [docs/features/<slug>.md](...).` and leave it in `.scratch/<feature>/` as history. Never update an archived spec to match later changes.
+
 ## 5. Bug fixes
 
 Bug flows don't create a feature doc. If the fix changed behaviour that a doc describes, update that doc, and add or remove the matching entry in arc42 §11. Otherwise do nothing.

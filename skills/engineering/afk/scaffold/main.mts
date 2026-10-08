@@ -20,7 +20,8 @@
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,14 @@ const MERGE_MODEL = "claude-sonnet-5-5";
 const PARALLEL = 3;
 const MAX_ROUNDS = 10;
 const PILOT_SIZE = 2;
+
+// Hidden acceptance tests: before implementing, a separate agent writes tests
+// from the ticket's acceptance criteria only. They are stored outside the repo
+// and applied after the implementer and reviewer finish, so the implementer
+// can't see or bend them. Doubles agent runs per ticket; worth it for
+// critical features. The spec must name the interfaces (seams) to test.
+const HIDDEN_ACCEPTANCE = false;
+const ACCEPTANCE_MODEL = "claude-sonnet-5-5";
 
 // ---------------------------------------------------------------------------
 
@@ -140,6 +149,36 @@ const hooks = INSTALL_COMMAND
   ? { sandbox: { onSandboxReady: [{ command: INSTALL_COMMAND, timeoutMs: 600_000 }] } }
   : {};
 
+// Writes acceptance tests on a throwaway branch, returns them as a patch kept
+// outside the repo, and deletes the branch so no worktree can reach it.
+async function writeHiddenAcceptance(ticket: Ticket): Promise<string> {
+  const accBranch = `okeanos/acc-${feature}-${ticket.id}`;
+  const box = await sandcastle.createSandbox({
+    branch: accBranch,
+    sandbox: sandbox(),
+    hooks,
+    copyToWorktree: COPY_TO_WORKTREE,
+  });
+  try {
+    const run = await box.run({
+      name: `acceptance-${ticket.id}`,
+      maxIterations: 5,
+      agent: sandcastle.claudeCode(ACCEPTANCE_MODEL),
+      promptFile: "./.sandcastle/acceptance-prompt.md",
+      promptArgs: { TICKET_ID: ticket.id, TICKET_BODY: ticket.body, SPEC: spec },
+    });
+    if (run.commits.length === 0) throw new Error("acceptance agent wrote no tests");
+  } finally {
+    await box.close();
+  }
+  const patch = git("diff", `${currentBranch}...${accBranch}`);
+  git("branch", "-D", accBranch);
+  if (!patch) throw new Error("acceptance agent produced an empty diff");
+  const file = join(mkdtempSync(join(tmpdir(), "okeanos-acc-")), `${ticket.id}.patch`);
+  writeFileSync(file, `${patch}\n`);
+  return file;
+}
+
 const done: string[] = [];
 const failed = new Map<string, string>();
 
@@ -161,6 +200,7 @@ for (let round = 1; round <= rounds; round++) {
   const settled = await Promise.allSettled(
     frontier.map(async (ticket) => {
       const branch = `okeanos/afk-${feature}-${ticket.id}`;
+      const acceptancePatch = HIDDEN_ACCEPTANCE ? await writeHiddenAcceptance(ticket) : null;
       const box = await sandcastle.createSandbox({
         branch,
         sandbox: sandbox(),
@@ -189,6 +229,16 @@ for (let round = 1; round <= rounds; round++) {
           promptFile: "./.sandcastle/review-prompt.md",
           promptArgs: { TICKET_BODY: ticket.body, VERIFY_COMMAND },
         });
+        if (acceptancePatch) {
+          const apply = await box.exec("git apply --index -", { stdin: readFileSync(acceptancePatch, "utf8") });
+          if (apply.exitCode !== 0) throw new Error(`hidden acceptance tests did not apply: ${apply.stderr.slice(-300)}`);
+          await box.exec(`git commit -m "test: hidden acceptance tests for ticket ${ticket.id}"`);
+          const verify = await box.exec(VERIFY_COMMAND);
+          if (verify.exitCode !== 0) {
+            const out = `${verify.stdout}\n${verify.stderr}`.trim().split("\n").slice(-15).join(" | ");
+            throw new Error(`hidden acceptance tests failed: ${out.slice(-500)}`);
+          }
+        }
         return branch;
       } finally {
         await box.close();

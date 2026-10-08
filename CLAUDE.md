@@ -7,4 +7,5 @@ Este repo é o plugin **Okeanos** do Claude Code. Veja `README.md`.
 - Skills que o Okeanos chama sozinho não têm `disable-model-invocation`. Skills manuais têm `disable-model-invocation: true`.
 - Dependências entre skills: escreva `call the Skill tool with "<nome>"`, nunca links entre pastas de skills.
 - O formato de ticket local (`**Status:**`, `**Blocked by:**` com números de dois dígitos) é lido por `skills/engineering/afk/scaffold/main.mts`. Mudou um, mude o outro.
+- Mudanças no processo seguem `docs/manutencao.md`: adicionar ou podar uma etapa por vez, medindo com `hooks/run metrics`.
 - Depois de mexer nos manifests, rode `claude plugin validate .claude-plugin/plugin.json --strict` e `claude plugin validate . --strict`.

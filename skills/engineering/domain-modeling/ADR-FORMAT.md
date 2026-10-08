@@ -10,9 +10,21 @@ Create the `docs/adr/` directory lazily: only when the first ADR is needed.
 # {Short title of the decision}
 
 {1-3 sentences: what's the context, what did we decide, and why.}
+
+## Confirmation
+
+{How compliance with this decision is checked automatically: the lint rule, architecture test, CI check or type constraint that fails when someone breaks it. Or, when no automatic check is possible: "Manual: <what the reviewer checks>".}
 ```
 
-That's it. An ADR can be a single paragraph. The value is in recording *that* a decision was made and *why*, not in filling out sections.
+That's it. An ADR can be a paragraph plus its Confirmation. The value is in recording *that* a decision was made, *why*, and *how breaking it gets caught*.
+
+**Confirmation is mandatory.** A decision nobody checks erodes quietly, and agents are the fastest way to erode it: they follow the code in front of them, not the ADR they never opened. Turning the decision into a check (an architecture fitness function) makes it something an agent runs into instead of something it has to remember. Examples:
+
+- "Ordering never imports from Billing" → an import-boundary lint rule (`eslint-plugin-boundaries`, `import-linter`, ArchUnit) or a test that scans imports.
+- "All money is integer cents" → a type (`Cents`) plus a lint rule banning floats in the money module.
+- "No synchronous HTTP between contexts" → a test that the HTTP client is only imported by adapters.
+
+When the check doesn't exist yet, creating it is part of the work: add a ticket for it under `.scratch/<feature>/issues/` (or the configured tracker), blocked by nothing, so it lands with the feature. When it exists, add its command to `docs/agents/checks.json` `onDone` if it's fast, so the Okeanos hooks enforce it on every change.
 
 ## Optional sections
 
