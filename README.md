@@ -83,7 +83,7 @@ Você pode pular etapas ("pula a entrevista", "só faz"). Os gates continuam val
 
 ## Hooks
 
-Definidos em [`hooks/hooks.json`](hooks/hooks.json) e implementados em [`hooks/okeanos.py`](hooks/okeanos.py).
+Definidos em [`hooks/hooks.json`](hooks/hooks.json) e implementados em [`hooks/okeanos_engine/`](hooks/okeanos_engine/) (regras neutras e um dialeto por agente), com entrada em [`hooks/okeanos.py`](hooks/okeanos.py).
 
 | Evento | Comportamento |
 | :- | :- |

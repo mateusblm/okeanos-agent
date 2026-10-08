@@ -11,7 +11,7 @@
           },
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" session-start",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" --agent claude session-start",
             "timeout": 10
           }
         ]
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" pre-bash",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" --agent claude pre-bash",
             "timeout": 30
           }
         ]
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" pre-edit",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" --agent claude pre-edit",
             "timeout": 10
           }
         ]
@@ -45,7 +45,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" post-edit",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" --agent claude post-edit",
             "timeout": 120,
             "statusMessage": "Okeanos: format e lint"
           }
@@ -57,7 +57,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" stop",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" --agent claude stop",
             "timeout": 1800,
             "statusMessage": "Okeanos: definição de pronto"
           }
@@ -69,7 +69,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" prompt",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" --agent claude prompt",
             "timeout": 10
           }
         ]

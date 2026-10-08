@@ -11,7 +11,7 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 
 2. Read the primary sources for the session the user specifies. This may mean searching through session logs on this machine. If the user doesn't specify a session, default to the current one.
 
-   Then read the measurements, not impressions. Developers in a 2025 RCT believed AI made them about 20% faster when it made them 19% slower; a retro built on how the session felt repeats that error. The Okeanos hooks log every gate event to `$(git rev-parse --git-common-dir)/okeanos/metrics.jsonl` (one JSON per line: `ts`, `session`, `branch`, `kind`, `detail`). Summarize the period under review by `kind`:
+   Then read the measurements, not impressions. Developers in a 2025 RCT believed AI made them about 20% faster when it made them 19% slower; a retro built on how the session felt repeats that error. The Okeanos hooks log every gate event to `$(git rev-parse --git-common-dir)/okeanos/metrics.jsonl` (one JSON per line: `ts`, `agent`, `session`, `branch`, `kind`, `detail`). Summarize the period under review by `kind`:
 
    - `stop:block` / `stop:escalate`: the definition of done failed (which command, how often, whether it reached the user).
    - `stop:tamper` / `stop:suppression`: tests loosened, lint or type checks silenced.
