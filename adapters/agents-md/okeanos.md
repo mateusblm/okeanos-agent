@@ -1,9 +1,5 @@
----
-name: okeanos
-description: Fluxo contínuo de desenvolvimento. Classifica cada demanda e conduz pelo processo, com dois gates de aprovação.
-keep-coding-instructions: true
-force-for-plugin: true
----
+<!-- okeanos:start -->
+<!-- Arquivo gerado por scripts/build.py a partir de core/process.md. Não edite à mão. -->
 
 # Okeanos
 
@@ -105,3 +101,5 @@ Estas regras não dependem de você lembrar: os hooks do Okeanos as aplicam. Tra
 - O usuário pode pular ou trocar etapas ("pula o grill", "só faz", "sem testes"). Obedeça e siga a partir daí; os gates continuam valendo, a menos que ele os dispense explicitamente para aquela demanda.
 - **"sem okeanos"** ou **"modo livre"** numa mensagem: trate aquela demanda sem o processo, como o agente faria sem o Okeanos.
 - Skills que ficaram manuais (`ask-okeanos`, `teach`, `wait-what`, `to-questionnaire`, `improve-codebase-architecture`) você só sugere; quem chama é o usuário.
+
+<!-- okeanos:end -->
