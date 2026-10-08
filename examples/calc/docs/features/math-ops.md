@@ -1,65 +1,74 @@
 # Operações matemáticas (math-ops)
 
-A calculadora de linha de comando, que antes só somava, agora também subtrai e divide. Divisão por zero é recusada com uma mensagem no stderr e código de saída `2`, em vez de imprimir `Infinity`.
+A calculadora de linha de comando, que antes só somava, agora também subtrai e divide. A divisão por zero é recusada com uma mensagem no stderr e código de saída 2, em vez de imprimir `Infinity`.
 
 **Status:** entregue em `okeanos/math-ops` · **Spec:** nenhuma · **ADRs:** nenhum
 
 ## O que foi construído
 
-- `node src/cli.js sub <a> <b>` imprime `a - b`.
-- `node src/cli.js div <a> <b>` imprime `a / b`.
-- `node src/cli.js div <a> 0` escreve `cannot divide by zero` no stderr e sai com código `2`.
-- `add` continua funcionando como antes.
-- A CLI passou a despachar operações por uma tabela (`add`, `sub`, `div`) em vez de um `if` por operação.
-- O núcleo `math` exporta `subtract`, `divide` e o erro de domínio `DivisionByZeroError`.
+- Nova operação `sub`: `node src/cli.js sub 5 3` imprime `2`.
+- Nova operação `div`: `node src/cli.js div 6 3` imprime `2`.
+- Divisão por zero: `div` com divisor `0` escreve `cannot divide by zero` no stderr e encerra com código 2.
+- A CLI deixou de comparar o nome da operação com `if` e passou a consultar uma tabela de operações (`add`, `sub`, `div`).
+- Mudança de comportamento não declarada: antes, uma operação desconhecida não imprimia nada e saía com código 0. Agora ela gera um `TypeError` não tratado (stack trace, código 1). Ver [Limites e próximos passos](#limites-e-próximos-passos).
 
-Sem spec registrada, não há desvios a apontar.
+Não havia spec nem tickets para esta feature. Este doc descreve o código do commit `ec1e6db`.
 
 ## Onde se encaixa na arquitetura
 
-Verde = elemento novo; amarelo = elemento alterado.
-
 ```mermaid
-C4Component
-  title Componentes da CLI calc após math-ops
-  Person(usuario, "Usuário", "Roda a calculadora no terminal")
-  Container_Boundary(calc, "CLI calc") {
-    Component(cli, "CLI", "Node.js, ES module", "Lê argv, despacha pela tabela de operações, imprime o resultado ou o erro")
-    Component(math, "Math", "Node.js, ES module", "Funções puras add, subtract, divide")
-    Component(divErr, "DivisionByZeroError", "Classe de erro", "Sinaliza divisão por zero")
-  }
-  Rel(usuario, cli, "Executa com operação e operandos", "argv, stdout, stderr")
-  Rel(cli, math, "Chama a operação", "função")
-  Rel(math, divErr, "Lança quando o divisor é zero")
-  Rel(cli, divErr, "Captura e converte em saída 2")
-  UpdateRelStyle(usuario, cli, $offsetX="-130", $offsetY="-20")
-  UpdateRelStyle(cli, math, $offsetX="-45", $offsetY="-55")
-  UpdateRelStyle(math, divErr, $offsetX="30", $offsetY="10")
-  UpdateRelStyle(cli, divErr, $offsetX="-110", $offsetY="0")
-  UpdateElementStyle(cli, $bgColor="#f9a825", $fontColor="#1d2330", $borderColor="#b8860b")
-  UpdateElementStyle(math, $bgColor="#f9a825", $fontColor="#1d2330", $borderColor="#b8860b")
-  UpdateElementStyle(divErr, $bgColor="#2e7d32", $fontColor="#ffffff", $borderColor="#1b5e20")
+%%{init: {"flowchart": {"wrappingWidth": 220, "nodeSpacing": 50, "rankSpacing": 70}}}%%
+flowchart TB
+  classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+  classDef component fill:#85bbf0,stroke:#5d82a8,color:#000000
+  classDef new fill:#2e7d32,stroke:#1b5e20,color:#ffffff
+  classDef changed fill:#f9a825,stroke:#b8860b,color:#1d2330
+  classDef boundary fill:none,stroke:#888888,stroke-dasharray:6 4,color:#888888
+
+  usuario(["<b>Usuário</b><br/>[Pessoa]<br/>Roda contas no terminal"]):::person
+
+  subgraph cliC["CLI calc [Container: Node.js]"]
+    cli["<b>CLI</b><br/>[Componente: módulo ES]<br/>Lê argumentos, despacha, imprime"]:::changed
+    ops["<b>Tabela de operações</b><br/>[Componente: objeto]<br/>Mapeia nome para função"]:::new
+    math["<b>Operações matemáticas</b><br/>[Componente: módulo ES]<br/>add, subtract, divide"]:::changed
+    erro["<b>DivisionByZeroError</b><br/>[Componente: classe de erro]<br/>Sinaliza divisor zero"]:::new
+  end
+  class cliC boundary
+
+  usuario -->|"Executa comando<br/>[argv]"| cli
+  cli -->|"Resultado ou erro<br/>[stdout/stderr, exit code]"| usuario
+  cli -->|"Busca operação<br/>[função]"| ops
+  ops -->|"Aponta para<br/>[função]"| math
+  math -.->|"Lança<br/>[exceção]"| erro
+  cli -.->|"Captura<br/>[instanceof]"| erro
 ```
+
+Legenda: azul-escuro = pessoa · azul-claro = componente · tracejado = fronteira · verde = novo · amarelo = alterado
 
 ## Como funciona
 
 ```mermaid
 sequenceDiagram
   actor U as Usuário
-  participant CLI
-  participant Math
-  U->>CLI: node src/cli.js op a b
-  CLI->>CLI: ops[op] e Number(a), Number(b)
-  alt op é add, sub ou div com divisor diferente de zero
-    CLI->>Math: add / subtract / divide(a, b)
-    Math-->>CLI: resultado
-    CLI-->>U: resultado no stdout, saída 0
-  else div com divisor zero
-    CLI->>Math: divide(a, 0)
-    Math-->>CLI: lança DivisionByZeroError
-    CLI-->>U: "cannot divide by zero" no stderr, saída 2
-  else op desconhecida
-    CLI-->>U: TypeError não tratado com stack trace, saída 1
+  participant C as CLI
+  participant T as Tabela de operações
+  participant M as Operações matemáticas
+
+  U->>C: node src/cli.js op a b
+  C->>T: ops[op]
+  alt operação conhecida (add, sub, div)
+    T-->>C: função
+    C->>M: função(Number(a), Number(b))
+    alt divide com b = 0
+      M-->>C: lança DivisionByZeroError
+      C-->>U: stderr "cannot divide by zero", exit 2
+    else sucesso
+      M-->>C: resultado
+      C-->>U: stdout resultado, exit 0
+    end
+  else operação desconhecida
+    T-->>C: undefined
+    C-->>U: TypeError não tratado (stack trace), exit 1
   end
 ```
 
@@ -67,25 +76,27 @@ sequenceDiagram
 
 | Componente | Responsabilidade | Mudança |
 | :- | :- | :- |
-| CLI (`src/cli.js`) | Lê `argv`, escolhe a operação, imprime resultado, traduz `DivisionByZeroError` em saída `2` | Alterado: tabela de operações e tratamento de erro |
-| Math (`src/math.js`) | Funções aritméticas puras | Alterado: `subtract` e `divide` |
-| DivisionByZeroError | Erro de domínio da divisão por zero | Novo |
+| CLI (`src/cli.js`) | Lê `argv`, converte os operandos com `Number`, despacha pela tabela, imprime o resultado e traduz `DivisionByZeroError` em exit 2 | Alterado: `if` trocado por tabela e `try/catch` |
+| Tabela de operações | Mapeia `add`, `sub`, `div` para as funções de `math.js` | Novo |
+| Operações matemáticas (`src/math.js`) | Funções puras `add`, `subtract`, `divide` | Alterado: `subtract` e `divide` adicionadas |
+| `DivisionByZeroError` | Erro de domínio lançado por `divide` quando o divisor é `0` | Novo |
 
 ## Testes
 
-Seam testada: as funções puras do módulo Math, com `node:test`, em `test/`. Cobertura: `subtract`, `divide` e o lançamento de `DivisionByZeroError`. Rode com `npm test`.
-
-A CLI não tem teste: o mapeamento de `DivisionByZeroError` para saída `2` e o despacho pela tabela não são verificados automaticamente. `add` também não tem teste.
+- Seam testada: as funções de `src/math.js`, chamadas diretamente (`subtract`, `divide` e o caso `divide(1, 0)` lançando `DivisionByZeroError`).
+- Os testes ficam em `test/` e usam o runner nativo `node:test`.
+- Rodar: `npm test`.
+- Sem cobertura: `add` e a própria CLI (despacho, códigos de saída, mensagens).
+- Os testes não foram executados durante a geração deste doc: o ambiente bloqueou a execução de `node`.
 
 ## Limites e próximos passos
 
-- **Operação desconhecida derruba a CLI.** `ops[op]` é `undefined` para qualquer operação fora da tabela (inclusive a ausência de argumentos), e a chamada lança `TypeError` com stack trace, sem mensagem de uso.
-- **Chaves herdadas de `Object.prototype` passam pela tabela.** `ops` é um objeto literal, então operações como `constructor` ou `toString` resolvem para funções herdadas e produzem saída sem sentido em vez de erro.
-- **Operandos não numéricos viram `NaN`.** `Number("x")` não é validado; a CLI imprime `NaN` com saída `0`.
-- **Sem teste da CLI.** O contrato de saída (stdout, stderr, código `2`) não tem teste.
-
-Os mesmos itens estão na [seção 11 do architecture.md](../architecture.md#11-riscos-e-débitos-técnicos).
+- **Operação desconhecida quebra a CLI.** `ops[op]` devolve `undefined` e a chamada gera `TypeError` com stack trace. Antes da feature ela saía em silêncio com código 0. Falta uma mensagem de uso.
+- **Operandos inválidos viram `NaN`.** `Number("x")` e argumentos ausentes produzem `NaN` sem aviso.
+- **A CLI não tem testes.** Os códigos de saída e o tratamento de `DivisionByZeroError` não estão testados.
+- **`add` não tem teste.**
+- **Só o zero exato é recusado.** `divide` compara com `b === 0`. `-0` também é recusado (`-0 === 0`), mas um divisor `NaN` passa e o resultado é `NaN`.
 
 ## Impacto na arquitetura
 
-Primeira execução do as-built neste repositório: o [architecture.md](../architecture.md) foi criado, e esta feature aparece em [§1](../architecture.md#1-introdução-e-objetivos), [§5](../architecture.md#5-visão-de-blocos-de-construção), [§6](../architecture.md#6-visão-de-tempo-de-execução), [§8](../architecture.md#8-conceitos-transversais) e [§11](../architecture.md#11-riscos-e-débitos-técnicos).
+Primeira versão de [`docs/architecture.md`](../architecture.md), criada por esta feature. Seções com conteúdo desta feature: [§1](../architecture.md#1-introdução-e-objetivos), [§5](../architecture.md#5-visão-de-blocos-de-construção), [§6](../architecture.md#6-visão-de-tempo-de-execução), [§8](../architecture.md#8-conceitos-transversais), [§9](../architecture.md#9-decisões-de-arquitetura), [§11](../architecture.md#11-riscos-e-débitos-técnicos).

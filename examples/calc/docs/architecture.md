@@ -7,109 +7,139 @@
 
 ### Visão geral dos requisitos
 
-`calc` é uma calculadora de linha de comando em Node.js. Recebe uma operação e dois operandos como argumentos e imprime o resultado no stdout.
+`calc` é uma calculadora de linha de comando em Node.js. Ela recebe uma operação e dois números como argumentos e imprime o resultado no stdout.
+
+Operações disponíveis: `add` (soma), `sub` (subtração), `div` (divisão, com recusa de divisor zero).
 
 Features entregues:
 
-- [Operações matemáticas (math-ops)](features/math-ops.md): `add`, `sub` e `div`, com recusa explícita de divisão por zero.
+- [Operações matemáticas (math-ops)](features/math-ops.md): subtração, divisão e erro de divisão por zero.
 
 ### Metas de qualidade
 
 | Meta | Motivo |
 | :- | :- |
-| Corretude | Uma calculadora que erra a conta não tem utilidade. |
-| Simplicidade | O sistema é pequeno; cada operação nova deve custar uma função e uma entrada na tabela. |
-| Erros claros | Entradas inválidas, como divisão por zero, devem gerar mensagem e código de saída, não valores enganosos. |
+| Corretude | Uma calculadora que erra a conta não serve para nada. |
+| Simplicidade | Projeto mínimo, sem dependências. O código precisa continuar legível de uma vez só. |
+| Erros explícitos | Casos inválidos, como a divisão por zero, devem falhar com mensagem e código de saída, não com um valor enganoso como `Infinity`. |
 
 ### Stakeholders
 
 | Papel | Expectativa |
 | :- | :- |
-| Usuário da CLI | Resultado correto no stdout e erros legíveis no stderr. |
-| Desenvolvedor | Adicionar operações sem mexer no fluxo da CLI, com o núcleo testável isoladamente. |
+| Usuário da CLI | Resultado correto no stdout, erro claro no stderr. |
+| Desenvolvedor | Adicionar uma operação = uma função em `math.js` + uma entrada na tabela da CLI. |
 
 ## 2. Restrições
 
-- Node.js com ES modules (`"type": "module"` no `package.json`).
+- Node.js com módulos ES (`"type": "module"` no `package.json`).
 - Sem dependências de runtime nem de desenvolvimento.
-- Testes com o runner nativo `node:test`, via `npm test`.
-- Sem entrada `bin` no `package.json`: a CLI roda com `node src/cli.js`.
+- Testes com o runner nativo `node:test` (`npm test`).
+- Interface exclusivamente por argumentos de linha de comando, stdout, stderr e código de saída.
 
 ## 3. Contexto e escopo
 
 ### Contexto de negócio
 
 ```mermaid
-C4Context
-  title Contexto da calc
-  Person(usuario, "Usuário", "Pessoa no terminal")
-  System(calc, "calc", "Calculadora de linha de comando")
-  Rel(usuario, calc, "Pede uma operação e recebe o resultado", "terminal")
+%%{init: {"flowchart": {"wrappingWidth": 220, "nodeSpacing": 50, "rankSpacing": 70}}}%%
+flowchart LR
+  classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+  classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+
+  usuario(["<b>Usuário</b><br/>[Pessoa]<br/>Roda contas no terminal"]):::person
+  calc["<b>calc</b><br/>[Sistema]<br/>Calculadora de linha de comando"]:::system
+
+  usuario -->|"Pede uma conta<br/>[CLI argv]"| calc
+  calc -->|"Devolve resultado ou erro<br/>[stdout/stderr]"| usuario
 ```
+
+Legenda: azul-escuro = pessoa · azul = sistema
 
 | Parceiro | O que troca com o sistema |
 | :- | :- |
-| Usuário | Envia operação e operandos; recebe resultado ou mensagem de erro. |
+| Usuário | Envia operação e dois operandos. Recebe o resultado, ou uma mensagem de erro e um código de saída diferente de zero. |
 
 Não há sistemas externos.
 
 ### Contexto técnico
 
-| Parceiro | Canal |
+| Canal | Uso |
 | :- | :- |
-| Usuário | Argumentos de linha de comando (`argv`), stdout para o resultado, stderr e código de saída para erros. |
+| `argv` | `node src/cli.js <op> <a> <b>` |
+| stdout | Resultado numérico. |
+| stderr | Mensagem de erro (`cannot divide by zero`). |
+| Código de saída | `0` sucesso · `2` divisão por zero · `1` erro não tratado (ex.: operação desconhecida). |
 
 ## 4. Estratégia de solução
 
 - Um único processo Node.js, sem dependências.
-- Separação entre núcleo e borda: o módulo Math tem funções puras e erros de domínio; a CLI faz o parse de `argv`, o despacho e a tradução de erros em código de saída.
-- Despacho por tabela (`ops`): uma operação nova é uma função em Math e uma entrada na tabela.
-- Corretude garantida por testes unitários no núcleo puro.
+- Duas camadas: a **CLI** cuida de entrada e saída; as **operações matemáticas** são funções puras, testáveis sem processo.
+- A CLI despacha por uma **tabela de operações** (nome → função), então uma operação nova não mexe no fluxo de controle.
+- Casos inválidos são sinalizados por **erros de domínio** (`DivisionByZeroError`) lançados pelas funções puras e traduzidos pela CLI em mensagem e código de saída.
 
 ## 5. Visão de blocos de construção
 
 ### Nível 1: containers
 
 ```mermaid
-C4Container
-  title Containers da calc
-  Person(usuario, "Usuário", "Pessoa no terminal")
-  System_Boundary(sys, "calc") {
-    Container(cli, "CLI calc", "Node.js, ES modules", "Processo de curta duração que calcula e imprime o resultado")
-  }
-  Rel(usuario, cli, "Executa com operação e operandos", "argv, stdout, stderr")
+%%{init: {"flowchart": {"wrappingWidth": 220, "nodeSpacing": 50, "rankSpacing": 70}}}%%
+flowchart LR
+  classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+  classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
+  classDef boundary fill:none,stroke:#888888,stroke-dasharray:6 4,color:#888888
+
+  usuario(["<b>Usuário</b><br/>[Pessoa]<br/>Roda contas no terminal"]):::person
+
+  subgraph calcS["calc [Sistema]"]
+    cliC["<b>CLI calc</b><br/>[Container: Node.js, módulos ES]<br/>Processo de linha de comando"]:::container
+  end
+  class calcS boundary
+
+  usuario -->|"Executa<br/>[argv]"| cliC
+  cliC -->|"Imprime<br/>[stdout/stderr, exit code]"| usuario
 ```
+
+Legenda: azul-escuro = pessoa · azul = container · tracejado = fronteira
 
 | Container | Responsabilidade | Tecnologia |
 | :- | :- | :- |
-| CLI calc | Ler a operação, calcular e imprimir o resultado ou o erro | Node.js, ES modules |
+| CLI calc | Ler argumentos, calcular, imprimir o resultado ou o erro | Node.js, módulos ES |
 
 ### Nível 2: componentes da CLI calc
 
 ```mermaid
-C4Component
-  title Componentes da CLI calc
-  Person(usuario, "Usuário", "Pessoa no terminal")
-  Container_Boundary(calc, "CLI calc") {
-    Component(cli, "CLI", "Node.js, ES module", "Lê argv, despacha pela tabela de operações, imprime o resultado ou o erro")
-    Component(math, "Math", "Node.js, ES module", "Funções puras add, subtract, divide")
-    Component(divErr, "DivisionByZeroError", "Classe de erro", "Sinaliza divisão por zero")
-  }
-  Rel(usuario, cli, "Executa com operação e operandos", "argv, stdout, stderr")
-  Rel(cli, math, "Chama a operação", "função")
-  Rel(math, divErr, "Lança quando o divisor é zero")
-  Rel(cli, divErr, "Captura e converte em saída 2")
-  UpdateRelStyle(usuario, cli, $offsetX="-130", $offsetY="-20")
-  UpdateRelStyle(cli, math, $offsetX="-45", $offsetY="-55")
-  UpdateRelStyle(math, divErr, $offsetX="30", $offsetY="10")
-  UpdateRelStyle(cli, divErr, $offsetX="-110", $offsetY="0")
+%%{init: {"flowchart": {"wrappingWidth": 220, "nodeSpacing": 50, "rankSpacing": 70}}}%%
+flowchart TB
+  classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+  classDef component fill:#85bbf0,stroke:#5d82a8,color:#000000
+  classDef boundary fill:none,stroke:#888888,stroke-dasharray:6 4,color:#888888
+
+  usuario(["<b>Usuário</b><br/>[Pessoa]<br/>Roda contas no terminal"]):::person
+
+  subgraph cliC["CLI calc [Container: Node.js]"]
+    cli["<b>CLI</b><br/>[Componente: módulo ES]<br/>Lê argumentos, despacha, imprime"]:::component
+    ops["<b>Tabela de operações</b><br/>[Componente: objeto]<br/>Mapeia nome para função"]:::component
+    math["<b>Operações matemáticas</b><br/>[Componente: módulo ES]<br/>add, subtract, divide"]:::component
+    erro["<b>DivisionByZeroError</b><br/>[Componente: classe de erro]<br/>Sinaliza divisor zero"]:::component
+  end
+  class cliC boundary
+
+  usuario -->|"Executa comando<br/>[argv]"| cli
+  cli -->|"Busca operação<br/>[função]"| ops
+  ops -->|"Aponta para<br/>[função]"| math
+  math -.->|"Lança<br/>[exceção]"| erro
+  cli -.->|"Captura<br/>[instanceof]"| erro
 ```
+
+Legenda: azul-escuro = pessoa · azul-claro = componente · tracejado = fronteira
 
 | Componente | Responsabilidade | Interface pública |
 | :- | :- | :- |
-| CLI | Parse de `argv`, despacho pela tabela `ops`, saída e códigos de erro | `node src/cli.js <add\|sub\|div> <a> <b>` |
-| Math | Aritmética pura | `add(a, b)`, `subtract(a, b)`, `divide(a, b)` |
-| DivisionByZeroError | Erro de domínio | Subclasse de `Error`, mensagem `cannot divide by zero` |
+| CLI (`src/cli.js`) | Lê `argv`, converte operandos com `Number`, despacha, imprime e define o código de saída | Linha de comando: `<op> <a> <b>` |
+| Tabela de operações | Mapeia `add`, `sub`, `div` para funções | Interna à CLI |
+| Operações matemáticas (`src/math.js`) | Aritmética pura | `add(a, b)`, `subtract(a, b)`, `divide(a, b)` |
+| `DivisionByZeroError` (`src/math.js`) | Erro de domínio para divisor zero | `class DivisionByZeroError extends Error` |
 
 ## 6. Visão de tempo de execução
 
@@ -118,71 +148,82 @@ C4Component
 ```mermaid
 sequenceDiagram
   actor U as Usuário
-  participant CLI
-  participant Math
-  U->>CLI: node src/cli.js op a b
-  CLI->>CLI: ops[op] e Number(a), Number(b)
-  alt op é add, sub ou div com divisor diferente de zero
-    CLI->>Math: add / subtract / divide(a, b)
-    Math-->>CLI: resultado
-    CLI-->>U: resultado no stdout, saída 0
-  else div com divisor zero
-    CLI->>Math: divide(a, 0)
-    Math-->>CLI: lança DivisionByZeroError
-    CLI-->>U: "cannot divide by zero" no stderr, saída 2
-  else op desconhecida
-    CLI-->>U: TypeError não tratado com stack trace, saída 1
+  participant C as CLI
+  participant T as Tabela de operações
+  participant M as Operações matemáticas
+
+  U->>C: node src/cli.js op a b
+  C->>T: ops[op]
+  alt operação conhecida (add, sub, div)
+    T-->>C: função
+    C->>M: função(Number(a), Number(b))
+    alt divide com b = 0
+      M-->>C: lança DivisionByZeroError
+      C-->>U: stderr "cannot divide by zero", exit 2
+    else sucesso
+      M-->>C: resultado
+      C-->>U: stdout resultado, exit 0
+    end
+  else operação desconhecida
+    T-->>C: undefined
+    C-->>U: TypeError não tratado (stack trace), exit 1
   end
 ```
-
-Introduzido por [math-ops](features/math-ops.md).
 
 ## 7. Visão de implantação
 
 ```mermaid
-C4Deployment
-  title Implantação da calc
-  Deployment_Node(maquina, "Máquina do usuário", "Linux, macOS ou Windows") {
-    Deployment_Node(node, "Node.js", "Runtime com suporte a ES modules e node:test") {
-      Container(cli, "CLI calc", "Node.js, ES modules", "Executada a partir do checkout do repositório")
-    }
-  }
+%%{init: {"flowchart": {"wrappingWidth": 220, "nodeSpacing": 50, "rankSpacing": 70}}}%%
+flowchart LR
+  classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
+  classDef boundary fill:none,stroke:#888888,stroke-dasharray:6 4,color:#888888
+
+  subgraph maquina["Máquina do usuário [Linux, macOS, Windows]"]
+    subgraph runtime["Node.js [Runtime]"]
+      cliC["<b>CLI calc</b><br/>[Container: Node.js, módulos ES]<br/>Roda a partir do clone do repo"]:::container
+    end
+  end
+  class maquina boundary
+  class runtime boundary
 ```
 
-Não há build, empacotamento, publicação nem CI configurados no repositório. A execução a partir de um checkout local é inferida da ausência de `bin` e de configuração de release.
+Legenda: azul = container · tracejado = nó de implantação
+
+O repositório não tem build, empacotamento, `bin` no `package.json` nem CI. A execução é direta a partir do código-fonte (`node src/cli.js ...`). A versão mínima de Node.js não está declarada; o código usa módulos ES e `node:test`, ambos presentes nas versões atuais.
 
 ## 8. Conceitos transversais
 
-**Tratamento de erros.** Erros de domínio são classes próprias lançadas pelo núcleo (`DivisionByZeroError`). A CLI captura só os erros conhecidos, escreve a mensagem no stderr e sai com código `2`; qualquer outro erro é relançado e encerra o processo com stack trace.
+**Tratamento de erros.** As funções puras lançam erros de domínio (`DivisionByZeroError`). A CLI captura só os erros que conhece, escreve a mensagem no stderr e sai com código específico (`2`). Qualquer outro erro é relançado e encerra o processo com stack trace e código `1`.
 
-**Validação de entrada.** Mínima: os operandos passam por `Number()` sem verificação, e a operação não é validada contra a tabela. Ver §11.
+**Validação de entrada.** Não existe. Os operandos passam por `Number(...)`; valores inválidos ou ausentes viram `NaN`. O nome da operação não é validado (ver §11).
 
-**Estratégia de testes.** Testes unitários do núcleo puro com `node:test` em `test/`, rodados por `npm test`. A CLI não tem testes.
+**Estratégia de testes.** Testes unitários das funções de `src/math.js` em `test/`, com `node:test` e `node:assert`. A CLI não é testada.
 
 ## 9. Decisões de arquitetura
 
-Não há ADRs no repositório. Decisões relevantes sem ADR:
+Não há ADRs no repositório. Decisões relevantes, sem ADR:
 
-- **Erro de domínio tipado para divisão por zero** (sem ADR): o núcleo lança `DivisionByZeroError` em vez de devolver `Infinity`, e a CLI o mapeia para o código de saída `2`. Origem: [math-ops](features/math-ops.md).
-- **Despacho por tabela na CLI** (sem ADR): operações ficam em um objeto `ops` indexado pelo nome. Origem: [math-ops](features/math-ops.md).
+- **Despacho por tabela de operações** (math-ops, sem ADR): a CLI mapeia nome → função em vez de encadear `if`s.
+- **Erro de domínio para divisão por zero** (math-ops, sem ADR): `divide` lança `DivisionByZeroError` em vez de devolver `Infinity`; a CLI traduz para exit 2.
 
 ## 10. Requisitos de qualidade
 
 | Meta | Estímulo | Resposta esperada |
 | :- | :- | :- |
-| Corretude | `node src/cli.js sub 5 3` | Imprime `2`, saída `0`. |
-| Corretude | `node src/cli.js div 6 3` | Imprime `2`, saída `0`. |
-| Erros claros | `node src/cli.js div 1 0` | `cannot divide by zero` no stderr, saída `2`. |
-| Simplicidade | Adicionar uma operação nova | Uma função em Math, uma entrada em `ops` e um teste; nenhuma outra mudança na CLI. |
+| Corretude | `node src/cli.js sub 5 3` | Imprime `2`, exit 0. |
+| Corretude | `node src/cli.js div 6 3` | Imprime `2`, exit 0. |
+| Erros explícitos | `node src/cli.js div 1 0` | stderr `cannot divide by zero`, exit 2, nada no stdout. |
+| Simplicidade | Adicionar uma operação nova | Uma função em `math.js` e uma entrada na tabela da CLI. |
 
 ## 11. Riscos e débitos técnicos
 
 | Item | Tipo (risco/débito) | Impacto | Origem |
 | :- | :- | :- | :- |
-| Operação desconhecida ou ausente gera `TypeError` com stack trace, sem mensagem de uso | Débito | Experiência ruim e código de saída genérico `1` | [math-ops](features/math-ops.md) |
-| `ops` é objeto literal: nomes herdados de `Object.prototype` (`constructor`, `toString`) passam pelo despacho | Risco | Saída sem sentido em vez de erro | [math-ops](features/math-ops.md) |
-| Operandos não numéricos viram `NaN` e saem com código `0` | Débito | Resultado enganoso tratado como sucesso | [math-ops](features/math-ops.md) |
-| CLI sem testes (despacho e código de saída `2`); `add` sem teste | Débito | Regressões na borda passam despercebidas | [math-ops](features/math-ops.md) |
+| Operação desconhecida gera `TypeError` com stack trace e exit 1; antes saía em silêncio com exit 0 | Débito | Mensagem ruim ao usuário; mudança de comportamento não declarada | [math-ops](features/math-ops.md) |
+| Operandos inválidos ou ausentes viram `NaN` sem aviso | Débito | Resultado sem sentido impresso como se fosse válido | [math-ops](features/math-ops.md) |
+| CLI sem testes (despacho, códigos de saída, mensagens) | Débito | Regressões na interface passam despercebidas | [math-ops](features/math-ops.md) |
+| `add` sem teste | Débito | Baixo, mas é a única operação sem cobertura | [math-ops](features/math-ops.md) |
+| Divisor `NaN` não é recusado por `divide` | Risco | Imprime `NaN` em vez de erro | [math-ops](features/math-ops.md) |
 
 ## 12. Glossário
 
@@ -190,7 +231,7 @@ Não há `GLOSSARY.md` no repositório.
 
 | Termo | Significado |
 | :- | :- |
-| Operação | Nome passado como primeiro argumento da CLI: `add`, `sub` ou `div`. |
-| Operandos | Os dois números passados após a operação. |
-| Tabela de operações | Objeto `ops` da CLI que mapeia o nome da operação para a função de Math. |
-| DivisionByZeroError | Erro de domínio lançado por `divide` quando o divisor é zero. |
+| Operação | Nome passado como primeiro argumento (`add`, `sub`, `div`) que escolhe a função a aplicar. |
+| Operando | Cada um dos dois números passados depois da operação. |
+| Tabela de operações | Objeto da CLI que liga o nome da operação à função de `math.js`. |
+| `DivisionByZeroError` | Erro lançado por `divide` quando o divisor é zero. |

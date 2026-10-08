@@ -26,53 +26,72 @@ Read the code itself wherever a diagram needs to show how pieces connect. When t
 
 ## 2. The C4 diagrams
 
-Use Mermaid's native C4 syntax. Each level answers a different question:
+Use the **C4 model's notation** (people, software systems, containers, components, boundaries, labelled relationships) and draw it with Mermaid `flowchart`. Do **not** use Mermaid's native `C4Context`/`C4Container`/`C4Component`/`C4Dynamic`/`C4Deployment` diagrams: their layout engine is experimental and puts labels on top of boxes. `flowchart` lays out cleanly and renders the same on GitHub.
 
-| Level | Mermaid | Question it answers | Where |
-| :- | :- | :- | :- |
-| 1 · Context | `C4Context` | Who uses the system, and which external systems does it talk to? | arc42 §3 |
-| 2 · Container | `C4Container` | Which deployable or runnable units make up the system (apps, CLIs, services, databases, queues), and how do they communicate? | arc42 §5 |
-| 3 · Component | `C4Component` | Inside one container, which modules exist and how do they depend on each other? One diagram per container worth opening. | arc42 §5, feature doc |
-| Dynamic | `C4Dynamic` or `sequenceDiagram` | How does a key flow move through the components at runtime? Use `sequenceDiagram` when the flow has branches or error paths; C4Dynamic has no alternatives. | arc42 §6, feature doc |
-| Deployment | `C4Deployment` | Where does each container run? | arc42 §7 |
+| Level | Question it answers | Where |
+| :- | :- | :- |
+| 1 · Context | Who uses the system, and which external systems does it talk to? | arc42 §3 |
+| 2 · Container | Which deployable or runnable units make up the system (apps, CLIs, services, databases, queues), and how do they communicate? | arc42 §5 |
+| 3 · Component | Inside one container, which modules exist and how do they depend on each other? One diagram per container worth opening. | arc42 §5, feature doc |
+| Runtime | How does a key flow move through the components? Use `sequenceDiagram`, with `alt` blocks for error paths. | arc42 §6, feature doc |
+| Deployment | Where does each container run? Nested `subgraph`s as deployment nodes. | arc42 §7 |
 
 Plus, when they apply: `erDiagram` for persisted data, `stateDiagram-v2` for an explicit state machine.
 
-Rules for every C4 diagram:
+### The C4 flowchart template
 
-- Give every element a description and a technology where one exists: `Container(api, "API", "Node.js, Fastify", "Serves the REST API")`.
-- Every relationship has a verb label and, across containers, the protocol: `Rel(web, api, "Lê e grava pedidos", "HTTPS/JSON")`.
-- Group with boundaries: `System_Boundary`, `Container_Boundary`, `Deployment_Node`.
-- Keep each diagram under ~15 elements; split by container or flow rather than cram.
-- Label with module, container, or concept names, never file paths.
-- In feature docs, highlight what this feature added or changed with `UpdateElementStyle`: new elements `$bgColor="#2e7d32", $fontColor="#ffffff", $borderColor="#1b5e20"`, changed elements `$bgColor="#f9a825", $fontColor="#1d2330", $borderColor="#b8860b"`. Say in the text which color means what.
-- Add `UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")` when the default layout crowds.
-- Keep relationship labels short (two to four words); Mermaid's C4 layout draws them at the midpoint of the line and they often land on top of a box. Move a label that overlaps with `UpdateRelStyle(from, to, $offsetX="-40", $offsetY="-50")`.
-
-Example (Container level):
+Start every C4 diagram from this block. Keep the `init` line and the `classDef`s exactly as written so every diagram in every repo looks the same; include only the classes the diagram uses.
 
 ```mermaid
-C4Container
-  title Containers da Loja
-  Person(cliente, "Cliente", "Compra pelo navegador")
-  System_Boundary(loja, "Loja") {
-    Container(web, "Web", "Next.js", "Interface de compra")
-    Container(api, "API", "Node.js, Fastify", "Regras de pedido e pagamento")
-    ContainerDb(db, "Banco", "PostgreSQL", "Pedidos, clientes, estoque")
-  }
-  System_Ext(stripe, "Stripe", "Processa pagamentos")
-  Rel(cliente, web, "Navega e compra", "HTTPS")
-  Rel(web, api, "Chama", "HTTPS/JSON")
-  Rel(api, db, "Lê e grava", "SQL")
-  Rel(api, stripe, "Cria cobranças", "HTTPS")
+%%{init: {"flowchart": {"wrappingWidth": 220, "nodeSpacing": 50, "rankSpacing": 70}}}%%
+flowchart LR
+  classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+  classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+  classDef container fill:#438dd5,stroke:#2e6295,color:#ffffff
+  classDef component fill:#85bbf0,stroke:#5d82a8,color:#000000
+  classDef external fill:#999999,stroke:#6b6b6b,color:#ffffff
+  classDef new fill:#2e7d32,stroke:#1b5e20,color:#ffffff
+  classDef changed fill:#f9a825,stroke:#b8860b,color:#1d2330
+  classDef boundary fill:none,stroke:#888888,stroke-dasharray:6 4,color:#888888
+
+  cliente(["<b>Cliente</b><br/>[Pessoa]<br/>Compra pelo navegador"]):::person
+
+  subgraph loja["Loja [Sistema]"]
+    web["<b>Web</b><br/>[Container: Next.js]<br/>Interface de compra"]:::container
+    api["<b>API</b><br/>[Container: Node.js, Fastify]<br/>Regras de pedido e pagamento"]:::container
+    db[("<b>Banco</b><br/>[Container: PostgreSQL]<br/>Pedidos, clientes, estoque")]:::container
+  end
+  class loja boundary
+
+  stripe["<b>Stripe</b><br/>[Sistema externo]<br/>Processa pagamentos"]:::external
+
+  cliente -->|"Navega e compra<br/>[HTTPS]"| web
+  web -->|"Chama<br/>[HTTPS/JSON]"| api
+  api -->|"Lê e grava<br/>[SQL]"| db
+  api -->|"Cria cobranças<br/>[HTTPS]"| stripe
 ```
+
+Shapes and labels:
+
+- Person: stadium `id(["..."])`. Database or store: cylinder `id[("...")]`. Everything else: rectangle `id["..."]`.
+- Every element label is `<b>Nome</b><br/>[Tipo: tecnologia]<br/>Descrição curta`. Type is Pessoa, Sistema, Sistema externo, Container or Componente. Descriptions stay under ~8 words; the details go in the table under the diagram.
+- Every relationship label is `"Verbo curto<br/>[protocolo]"`: two to four words plus the protocol in brackets. Inside one container the protocol is the mechanism (`[função]`, `[evento]`).
+- Use `-.->` for exceptional or asynchronous relationships (errors thrown, events, callbacks), `-->` for everything else.
+- Boundaries are `subgraph id["Nome [Sistema]"]` (or `[Container: tecnologia]` at component level) followed by `class id boundary`. Deployment nodes are nested subgraphs: `subgraph maquina["Máquina do usuário [Linux, macOS, Windows]"]`.
+
+Layout:
+
+- `flowchart LR` when the longest chain of elements has 4 or fewer, so arrows enter boundaries from the side. With 5 or more, use `flowchart TB`: a wide LR diagram shrinks on GitHub until the text is unreadable.
+- Keep each diagram under ~12 elements; split by container or flow rather than cram.
+- Label with module, container, or concept names, never file paths.
+- In feature docs, mark what this feature added with `:::new` and what it changed with `:::changed`. Untouched elements keep their C4 class.
+- Right under every C4 diagram, one legend line: `Legenda: azul-escuro = pessoa · azul = container · azul-claro = componente · cinza = sistema externo · tracejado = fronteira`, plus `· verde = novo · amarelo = alterado` in feature docs. Translate to the doc's language.
 
 ### Mermaid syntax rules
 
-- Strings in C4 macros are double-quoted; never put a double quote inside one.
-- Element aliases are plain identifiers (`authService`).
-- Outside C4: quote labels with spaces or punctuation (`A["Auth service"]`), no HTML in labels except `<br/>`.
-- If `mmdc` (mermaid-cli) is available, render every diagram once to check it parses, and look at the C4 ones for labels sitting on boxes. Don't install it just for this.
+- Node IDs are plain identifiers (`authService`); labels carry the readable name, always in double quotes.
+- Never put a double quote inside a label. HTML in labels is limited to `<b>` and `<br/>`.
+- If `mmdc` (mermaid-cli) is available, render every diagram once and look at the image: labels readable, nothing overlapping, arrows not crossing boundary titles. Don't install it just for this.
 
 ## 3. The architecture doc (arc42)
 
@@ -97,7 +116,7 @@ C4Container
 
 ## 3. Contexto e escopo
 ### Contexto de negócio
-<C4Context: pessoas e sistemas externos. Tabela: parceiro → o que troca com o sistema.>
+<Diagrama C4 de contexto: pessoas e sistemas externos. Tabela: parceiro → o que troca com o sistema.>
 ### Contexto técnico
 <Canais e protocolos com cada parceiro (HTTPS, CLI/stdin/stdout, fila, arquivo).>
 
@@ -106,15 +125,15 @@ C4Container
 
 ## 5. Visão de blocos de construção
 ### Nível 1: containers
-<C4Container + tabela: container → responsabilidade → tecnologia.>
+<Diagrama C4 de containers + tabela: container → responsabilidade → tecnologia.>
 ### Nível 2: componentes de <container>
-<Um C4Component por container relevante + tabela: componente → responsabilidade → interface pública.>
+<Um diagrama C4 de componentes por container relevante + tabela: componente → responsabilidade → interface pública.>
 
 ## 6. Visão de tempo de execução
-<Um subtítulo por fluxo importante, cada um com C4Dynamic ou sequenceDiagram, incluindo os caminhos de erro relevantes.>
+<Um subtítulo por fluxo importante, cada um com um sequenceDiagram, incluindo os caminhos de erro relevantes.>
 
 ## 7. Visão de implantação
-<C4Deployment: onde cada container roda (máquina do usuário, container Docker, nuvem). Como build e release acontecem, se o repo mostra.>
+<Diagrama de implantação (subgraphs aninhados como nós): onde cada container roda (máquina do usuário, container Docker, nuvem). Como build e release acontecem, se o repo mostra.>
 
 ## 8. Conceitos transversais
 <Tratamento de erros, validação de entrada, logging, configuração, estratégia de testes, segurança. Um parágrafo curto por conceito que de fato existe no código.>
@@ -133,7 +152,7 @@ C4Container
 <Termos do domínio. Se existe GLOSSARY.md, aponte para ele e liste só os termos usados aqui.>
 ```
 
-**Updating an existing doc**: change only what this feature affected. Add or change elements in the C4 diagrams, add the feature's flows to §6, its decisions to §9, its findings to §11, and the "Última atualização" line. Never rewrite unrelated sections. When the feature changed nothing at some level (no new containers), leave that diagram alone.
+**Updating an existing doc**: change only what this feature affected. Add or change elements in the C4 diagrams (keeping the template's classes), add the feature's flows to §6, its decisions to §9, its findings to §11, and the "Última atualização" line. Never rewrite unrelated sections. When the feature changed nothing at some level (no new containers), leave that diagram alone.
 
 ## 4. The feature doc
 
@@ -150,10 +169,10 @@ C4Container
 <Comportamento visível ao usuário, em lista curta. Desvios da spec e o motivo.>
 
 ## Onde se encaixa na arquitetura
-<C4Component do container afetado, com elementos novos e alterados destacados. Uma linha dizendo qual cor é o quê.>
+<Diagrama C4 de componentes do container afetado, com `:::new` e `:::changed`, e a linha de legenda.>
 
 ## Como funciona
-<Um sequenceDiagram ou C4Dynamic por fluxo novo ou alterado, com o caminho de erro quando faz parte do comportamento.>
+<Um sequenceDiagram por fluxo novo ou alterado, com o caminho de erro quando faz parte do comportamento.>
 
 ## Componentes
 | Componente | Responsabilidade | Mudança |
