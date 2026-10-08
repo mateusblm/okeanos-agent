@@ -403,7 +403,17 @@ def package_requests(toks):
 
 
 def fetch_json(url, timeout=4):
-    req = urllib.request.Request(url, headers={"User-Agent": "okeanos-hook (claude code plugin)"})
+    fake = os.environ.get("OKEANOS_REGISTRY_FAKE")
+    if fake:
+        # Tests: a JSON map {url: body | http_status}; a url not in the map behaves as offline.
+        with open(fake) as f:
+            table = json.load(f)
+        if url not in table:
+            raise urllib.error.URLError("not in fake registry")
+        if isinstance(table[url], int):
+            raise urllib.error.HTTPError(url, table[url], "fake registry", None, None)
+        return table[url]
+    req =urllib.request.Request(url, headers={"User-Agent": "okeanos-hook (claude code plugin)"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
 
