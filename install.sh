@@ -2,7 +2,7 @@
 # Okeanos: first install from GitHub, or update an existing install.
 #
 #   curl -fsSL https://raw.githubusercontent.com/mateusblm/okeanos-agent/main/install.sh | sh
-#   sh install.sh [--agent claude|codex] [--uninstall] [--dry-run]
+#   sh install.sh [--agent claude|codex|copilot|cursor] [--uninstall] [--dry-run]
 #
 # Clones (or fast-forwards) the repo into ~/.local/share/okeanos and runs
 # `bin/okeanos install` from there, which detects the agents on the PATH.
