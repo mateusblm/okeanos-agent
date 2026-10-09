@@ -454,3 +454,90 @@ def test_onboard_check_in_claude_still_wants_claude_md(repo):
     (repo / "AGENTS.md").write_text("# proj\n")
     set_checks(repo, {"onDone": []})
     assert "CLAUDE.md" in onboard(repo, "claude")
+
+
+# ---------------------------------------------------------------------------
+# the committed checks.json is the ruler: loosening it needs the user's approval
+# ---------------------------------------------------------------------------
+
+RULER = "docs/agents/checks.json"
+RULER_TEXT = """{
+  "onDone": [
+    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},
+    {"name": "lint", "cmd": "ruff check ."}
+  ],
+  "maxChangedLines": 400
+}
+"""
+APPROVE_RULER = f"Para aprovar: okeanos aprovar {RULER}"
+
+
+@pytest.fixture
+def ruled(repo):
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / RULER).write_text(RULER_TEXT)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "ruler")
+    return repo
+
+
+def ruler_patch(body):
+    return f"*** Begin Patch\n*** Update File: {RULER}\n{body}\n*** End Patch"
+
+
+REMOVE_LINT = ruler_patch("""@@
+-    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},
+-    {"name": "lint", "cmd": "ruff check ."}
++    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600}
+   ],""")
+CHANGE_CMD = ruler_patch("""@@
+-    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},
++    {"name": "tests", "cmd": "true", "timeout": 600},""")
+RAISE_LIMIT = ruler_patch("""@@
+   ],
+-  "maxChangedLines": 400
++  "maxChangedLines": 4000
+ }""")
+LOWER_LIMIT = RAISE_LIMIT.replace("4000", "100")
+ADD_CMD = ruler_patch("""@@
+   "onDone": [
++    {"name": "types", "cmd": "mypy ."},
+     {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},""")
+
+
+@pytest.mark.parametrize("text", [
+    REMOVE_LINT, CHANGE_CMD, RAISE_LIMIT,
+    f"*** Begin Patch\n*** Delete File: {RULER}\n*** End Patch",
+    f"*** Begin Patch\n*** Add File: {RULER}\n+{{ not json\n*** End Patch",
+    f"*** Begin Patch\n*** Update File: {RULER}\n*** Move to: docs/agents/old.json\n@@\n {{\n*** End Patch",
+], ids=["remove-cmd", "change-cmd", "raise-limit", "delete", "invalid-json", "move"])
+def test_patch_loosening_the_ruler_is_denied(ruled, text):
+    reason = denied(patch(ruled, text)[1])
+    assert RULER in reason and reason.splitlines()[-1] == APPROVE_RULER
+
+
+@pytest.mark.parametrize("text", [ADD_CMD, LOWER_LIMIT], ids=["add-cmd", "lower-limit"])
+def test_patch_tightening_the_ruler_is_allowed(ruled, text):
+    assert patch(ruled, text) == (0, None)
+
+
+@pytest.mark.parametrize("command", [
+    f"echo {{}} > {RULER}",
+    f"rm {RULER}",
+    f"sed -i 's/400/4000/' {RULER}",
+])
+def test_shell_writing_the_ruler_is_denied(ruled, command):
+    assert denied(shell(ruled, command)[1]).splitlines()[-1] == APPROVE_RULER
+
+
+def test_uncommitted_ruler_is_free(repo):
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / RULER).write_text(RULER_TEXT)
+    assert patch(repo, REMOVE_LINT) == (0, None)
+    assert shell(repo, f"echo {{}} > {RULER}") == (0, None)
+
+
+def test_approved_ruler_change_is_allowed(ruled):
+    approve(ruled, RULER)
+    assert patch(ruled, RAISE_LIMIT, env=CLOCK) == (0, None)
+    assert shell(ruled, f"rm {RULER}", env=CLOCK) == (0, None)

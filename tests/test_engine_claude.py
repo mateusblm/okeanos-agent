@@ -923,3 +923,184 @@ def test_hook_files_without_okeanos_are_free(repo):
 def test_agent_cannot_edit_project_hooks_with_the_editor(hooked_repo, rel):
     d, reason = decision(edit(hooked_repo, "Write", {"file_path": str(hooked_repo / rel), "content": "{}"})[1])
     assert d == "deny" and "humano" in reason, rel
+
+
+# ---------------------------------------------------------------------------
+# the committed checks.json is the ruler: loosening it needs the user's approval
+# ---------------------------------------------------------------------------
+
+RULER = "docs/agents/checks.json"
+RULER_TEXT = """{
+  "onDone": [
+    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},
+    {"name": "lint", "cmd": "ruff check ."}
+  ],
+  "onEdit": [
+    {"name": "fmt", "cmd": "ruff format {file}", "ext": [".py"]}
+  ],
+  "maxChangedLines": 400,
+  "testPatterns": ["(^|/)checks/"]
+}
+"""
+
+
+def commit_ruler(root, text=RULER_TEXT):
+    (root / "docs" / "agents").mkdir(parents=True, exist_ok=True)
+    (root / RULER).write_text(text)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "ruler")
+    return root
+
+
+@pytest.fixture
+def ruled(repo):
+    return commit_ruler(repo)
+
+
+def ruler_edit(root, old, new, **kw):
+    return edit(root, "Edit", {"file_path": str(root / RULER), "old_string": old, "new_string": new}, **kw)
+
+
+def ruler_write(root, content, **kw):
+    if not isinstance(content, str):
+        content = json.dumps(content, indent=2)
+    return edit(root, "Write", {"file_path": str(root / RULER), "content": content}, **kw)
+
+
+def ruler(**changes):
+    data = json.loads(RULER_TEXT)
+    for key, value in changes.items():
+        if value is None:
+            data.pop(key)
+        else:
+            data[key] = value
+    return data
+
+
+def asks_for_ruler(out):
+    d, reason = decision(out)
+    assert d == "ask", reason
+    assert RULER in reason
+    assert reason.splitlines()[-1] == f"Para aprovar: okeanos aprovar {RULER}"
+    return reason
+
+
+def test_changing_a_done_command_asks(ruled):
+    asks_for_ruler(ruler_edit(ruled, '"cmd": "python3 -m pytest -q"', '"cmd": "true"')[1])
+    assert "pre-edit:ask" in [e["kind"] for e in metrics(ruled)]
+
+
+def test_raising_max_changed_lines_asks(ruled):
+    asks_for_ruler(ruler_edit(ruled, '"maxChangedLines": 400', '"maxChangedLines": 2000')[1])
+
+
+def test_lowering_max_changed_lines_is_allowed(ruled):
+    assert ruler_edit(ruled, '"maxChangedLines": 400', '"maxChangedLines": 200') == (0, None)
+
+
+def test_adding_a_done_command_is_allowed(ruled):
+    assert edit(ruled, "MultiEdit", {"file_path": str(ruled / RULER), "edits": [
+        {"old_string": '"onDone": [\n', "new_string": '"onDone": [\n    {"name": "types", "cmd": "mypy ."},\n'},
+        {"old_string": '"onEdit": [\n', "new_string": '"onEdit": [\n    {"name": "lint", "cmd": "ruff check {file}"},\n'},
+    ]}) == (0, None)
+
+
+def test_multiedit_removing_a_done_command_asks(ruled):
+    asks_for_ruler(edit(ruled, "MultiEdit", {"file_path": str(ruled / RULER), "edits": [
+        {"old_string": '"onEdit": [\n', "new_string": '"onEdit": [\n    {"name": "lint", "cmd": "ruff check {file}"},\n'},
+        {"old_string": ',\n    {"name": "lint", "cmd": "ruff check ."}\n  ],', "new_string": "\n  ],"},
+    ]})[1])
+
+
+@pytest.mark.parametrize("content", [
+    ruler(onDone=[{"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600}]),
+    ruler(onDone=None),
+    ruler(onEdit=[{"name": "fmt", "cmd": "ruff format {file}", "ext": [".py", ".pyi"]}]),
+    ruler(onDone=[{"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 5}, {"name": "lint", "cmd": "ruff check ."}]),
+    ruler(maxChangedLines=None),
+    ruler(maxChangedLines="9999"),
+    ruler(testPatterns=[]),
+    "{ not json",
+    "",
+    "[]",
+], ids=["remove-done", "drop-done", "change-ext", "change-timeout", "drop-limit", "limit-as-string",
+        "remove-test-pattern", "invalid", "empty", "not-an-object"])
+def test_writing_a_looser_ruler_asks(ruled, content):
+    asks_for_ruler(ruler_write(ruled, content)[1])
+
+
+@pytest.mark.parametrize("content", [
+    ruler(testPatterns=["(^|/)checks/", "_check\\.py$"], maxChangedLines=300),
+    ruler(onDone=[{"name": "lint", "cmd": "ruff check ."},
+                  {"name": "pytest", "cmd": "python3 -m pytest -q", "timeout": 600}]),
+    ruler(extra={"note": "unknown keys are not the ruler"}),
+], ids=["tighten", "reorder-and-rename", "unknown-key"])
+def test_writing_an_equal_or_stricter_ruler_is_allowed(ruled, content):
+    assert ruler_write(ruled, content) == (0, None)
+
+
+def test_raising_the_default_limit_asks(repo):
+    commit_ruler(repo, json.dumps({"onDone": []}, indent=2))
+    asks_for_ruler(ruler_write(repo, {"onDone": [], "maxChangedLines": 1000})[1])
+    assert ruler_write(repo, {"onDone": [], "maxChangedLines": 300}) == (0, None)
+
+
+def test_edit_that_cannot_be_applied_asks(ruled):
+    asks_for_ruler(ruler_edit(ruled, '"cmd": "not in the file"', '"cmd": "true"')[1])
+
+
+@pytest.mark.parametrize("command", [
+    "echo {} > docs/agents/checks.json",
+    "cat /tmp/x >> docs/agents/checks.json",
+    "rm docs/agents/checks.json",
+    "rm -f ./docs/agents/checks.json",
+    "sed -i 's/400/4000/' docs/agents/checks.json",
+    "mv docs/agents/checks.json /tmp/checks.json",
+    "mv /tmp/looser.json docs/agents/checks.json",
+    "cp /tmp/looser.json docs/agents/checks.json",
+    "jq '.maxChangedLines = 9999' docs/agents/checks.json | tee docs/agents/checks.json",
+    "truncate -s 0 docs/agents/checks.json",
+    "git rm docs/agents/checks.json",
+    "git mv docs/agents/checks.json docs/agents/old.json",
+])
+def test_shell_writing_the_ruler_asks(ruled, command):
+    asks_for_ruler(bash(ruled, command)[1])
+
+
+def test_shell_writing_the_ruler_from_a_subdirectory_asks(ruled):
+    out = hook("pre-bash", {"session_id": "s1", "cwd": str(ruled / "docs"), "hook_event_name": "PreToolUse",
+                            "tool_name": "Bash", "tool_input": {"command": "echo {} > agents/checks.json"}})[1]
+    asks_for_ruler(out)
+
+
+@pytest.mark.parametrize("command", [
+    "cat docs/agents/checks.json",
+    "jq . docs/agents/checks.json",
+    "git diff docs/agents/checks.json",
+    "echo {} > docs/agents/other.json",
+])
+def test_reading_the_ruler_is_allowed(ruled, command):
+    assert bash(ruled, command) == (0, None), command
+
+
+def test_uncommitted_ruler_is_free(repo):
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / RULER).write_text(RULER_TEXT)
+    assert ruler_write(repo, {"onDone": []}) == (0, None)
+    assert ruler_edit(repo, '"maxChangedLines": 400', '"maxChangedLines": 2000') == (0, None)
+    assert bash(repo, "echo {} > docs/agents/checks.json") == (0, None)
+    assert bash(repo, "rm docs/agents/checks.json") == (0, None)
+
+
+def test_approved_ruler_change_is_allowed(ruled):
+    approve(ruled, RULER)
+    assert ruler_edit(ruled, '"maxChangedLines": 400', '"maxChangedLines": 2000', env=CLOCK) == (0, None)
+    assert ruler_write(ruled, "{}", env=CLOCK) == (0, None)
+    assert bash(ruled, "rm docs/agents/checks.json", env=CLOCK) == (0, None)
+    assert "pre-edit:approved" in [e["kind"] for e in metrics(ruled)]
+
+
+def test_ruler_approval_does_not_cover_tests(ruled):
+    approve(ruled, RULER)
+    d, _ = decision(change_assertion(ruled)[1])
+    assert d == "ask"
