@@ -1,3 +1,5 @@
+> Implementada em 2026-10-09. O estado atual está em [docs/features/portabilidade.md](../../docs/features/portabilidade.md).
+
 # Spec: Okeanos em Codex, Copilot e Cursor
 
 **Status:** ready-for-agent

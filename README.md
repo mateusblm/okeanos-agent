@@ -103,7 +103,7 @@ O trabalho é planejado em tickets de 200 a 400 linhas. Acima de `maxChangedLine
 
 ### Documentação que não acompanha o código
 
-Antes do G2, o agente oferece a skill [`as-built`](skills/engineering/as-built/SKILL.md), que atualiza um documento de arquitetura arc42 com diagramas C4 e escreve um doc da feature a partir do que foi construído. Ela gasta bastante token, então só roda se você aceitar; o agente recomenda gerar quando a mudança altera a arquitetura e pular em ajustes internos. Exemplo: [`examples/calc/docs/architecture.md`](examples/calc/docs/architecture.md).
+Antes do G2, o agente oferece a skill [`as-built`](skills/engineering/as-built/SKILL.md), que atualiza um documento de arquitetura arc42 com diagramas C4 e escreve um doc da feature a partir do que foi construído. Ela gasta bastante token, então só roda se você aceitar; o agente recomenda gerar quando a mudança altera a arquitetura e pular em ajustes internos. Exemplos: [`docs/architecture.md`](docs/architecture.md), a arquitetura do próprio Okeanos, e [`examples/calc/docs/architecture.md`](examples/calc/docs/architecture.md).
 
 ## Como funciona
 
@@ -152,7 +152,7 @@ Quão forte é essa barreira depende do agente. No Claude Code e no Copilot CLI 
 
 ## Hooks
 
-Os hooks entram por [`hooks/run`](hooks/run) `--agent <agente> <hook>`, que chama [`hooks/okeanos.py`](hooks/okeanos.py). No Claude Code, estão em [`hooks/hooks.json`](hooks/hooks.json); nos outros, o instalador os escreve na configuração de usuário. Os nomes de evento variam por agente (tabela de suporte); o comportamento é o mesmo:
+Os hooks entram por [`hooks/run`](hooks/run) `--agent <agente> <hook>`, que chama [`hooks/okeanos.py`](hooks/okeanos.py). No Claude Code, estão em [`hooks/hooks.json`](hooks/hooks.json); nos outros, o instalador os escreve na configuração de usuário (no Codex sob o Orca, ou com `--project`, no `.codex/hooks.json` do projeto). Os nomes de evento variam por agente (tabela de suporte); o comportamento é o mesmo:
 
 | Momento | Comportamento |
 | :- | :- |
@@ -163,7 +163,7 @@ Os hooks entram por [`hooks/run`](hooks/run) `--agent <agente> <hook>`, que cham
 | Depois de uma edição | Roda os comandos `onEdit` no arquivo editado e devolve as falhas ao agente. |
 | Fim do turno | Roda os comandos `onDone`. Aponta testes apagados, asserções removidas, testes desligados e supressões novas de lint ou tipo. Avisa quando o diff passa de `maxChangedLines`. |
 
-Qualquer erro interno de um hook vira "permitir", nunca bloqueio. Cada bloqueio, pedido de aprovação e falha é registrado em `.git/okeanos/metrics.jsonl`, com o nome do agente.
+Qualquer erro interno de um hook vira "permitir", nunca bloqueio. Cada bloqueio, pedido de aprovação e falha é registrado em `.git/okeanos/metrics.jsonl`, com o nome do agente. Quando a pasta do git é só leitura (a sandbox do Codex), o estado da sessão e as métricas vão para a reserva em `<TMPDIR>/okeanos/`; as aprovações ficam sempre em `.git/okeanos/`.
 
 ### Git hooks
 
@@ -260,7 +260,7 @@ O agente das sandboxes é escolhido na configuração (`AGENT` em `.sandcastle/m
 
 ## Métricas e manutenção
 
-A skill [`retro`](skills/engineering/retro/SKILL.md) usa `.git/okeanos/metrics.jsonl` e termina em 1 a 3 mudanças concretas no processo. O agente oferece a retro depois de eventos como um G2 recusado ou uma definição de pronto escalada para você. Para ver o resumo de um repo, por tipo de evento e por agente:
+A skill [`retro`](skills/engineering/retro/SKILL.md) usa `.git/okeanos/metrics.jsonl` (e a reserva em `<TMPDIR>/okeanos/`) e termina em 1 a 3 mudanças concretas no processo. O agente oferece a retro depois de eventos como um G2 recusado ou uma definição de pronto escalada para você. Para ver o resumo de um repo, por tipo de evento e por agente:
 
 ```bash
 okeanos metrics 30   # últimos 30 dias
@@ -291,6 +291,7 @@ Cada etapa do processo é uma suposição sobre o que o modelo ainda não faz be
 | [`hooks/okeanos_engine/`](hooks/okeanos_engine/) | o motor: regras neutras em `rules.py`, um dialeto por agente em `dialects/`, aprovações, git hooks e o instalador (`installer.py`) |
 | [`bin/okeanos`](bin/okeanos) | a CLI: `install`, `doctor`, `aprovar`, `aprovacoes`, `revogar`, `githooks`, `metrics` |
 | [`tests/`](tests/) | testes do motor, dos dialetos, do instalador, dos git hooks e do build |
+| [`docs/architecture.md`](docs/architecture.md) | a arquitetura (arc42 com diagramas C4) e, em [`docs/features/`](docs/features/), um doc por feature |
 
 Para mudar o processo, edite `core/process.md` e rode `python3 scripts/build.py`; os arquivos gerados nunca se editam à mão. Para suportar outro agente, escreva um dialeto em `hooks/okeanos_engine/dialects/` e o plano dele no instalador; as regras não mudam. Rode os testes da raiz:
 
