@@ -12,7 +12,7 @@ import shutil
 import sys
 import time
 
-from . import approvals, githooks, installer
+from . import approvals, codex_trust, githooks, installer
 from .cli import metrics_summary
 from .plumbing import git, repo_root
 
@@ -39,13 +39,27 @@ def interactive():
         return False
 
 
+def agent_session_var():
+    return next((var for var in AGENT_SESSION_VARS if os.environ.get(var)), None)
+
+
 def human_only(sub):
     """None if a human may run `sub` here; else the refusal message."""
-    for var in AGENT_SESSION_VARS:
-        if os.environ.get(var):
-            return IN_AGENT.format(sub=sub, var=var)
+    var = agent_session_var()
+    if var:
+        return IN_AGENT.format(sub=sub, var=var)
     if not interactive():
         return TTY_ONLY.format(sub=sub)
+    return None
+
+
+def consent_refusal():
+    """Why the human can't be asked for consent here (short, for the install report), or None."""
+    var = agent_session_var()
+    if var:
+        return f"`{var}` mostra que este shell é de uma sessão de agente"
+    if not interactive():
+        return "sem terminal interativo"
     return None
 
 
@@ -152,9 +166,61 @@ def cmd_githook(args):
     return githooks.run_hook(args.hook)
 
 
+def codex_scope(project):
+    """The Codex hooks this install touches: the repository's (--project) or the user's; None outside a repo."""
+    if not project:
+        return codex_trust.user_scope(installer.home_dir())
+    root = repo_root(os.getcwd())
+    return codex_trust.project_scope(root) if root else None
+
+
 def cmd_install(args):
-    return installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run, project=args.project,
+    names, _ = installer.requested_agents(args.agent)
+    home, root = installer.home_dir(), installer.plugin_root()
+    with_codex = not args.dry_run and (names == ["codex"] if args.project else (
+        "codex" in names or (not names and (args.uninstall or shutil.which("codex")))))
+    scope = codex_scope(args.project) if with_codex else None
+    keys = None
+    if scope and args.uninstall and codex_trust.installed(scope, home):
+        try:
+            keys = codex_trust.okeanos_keys(scope, root, home)
+        except codex_trust.TrustError as e:
+            print(f"codex: aviso, não consegui ler os hooks pelo Codex ({e}); as entradas de confiança do Okeanos "
+                  "em hooks.state ficam no config.toml do Codex (inofensivas sem os hooks; tire-as à mão se quiser).")
+    code = installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run, project=args.project,
                          codex_hooks=args.codex_hooks)
+    if scope and args.uninstall and keys:
+        try:
+            removed = codex_trust.forget(scope, keys, root, home)
+            if removed:
+                print(f"codex: {removed} entrada(s) de confiança do Okeanos removida(s) de hooks.state.")
+        except codex_trust.TrustError as e:
+            print(f"codex: aviso, as entradas de confiança do Okeanos em hooks.state ficaram ({e}).")
+    elif scope and not args.uninstall and codex_trust.installed(scope, home):
+        codex_trust.offer(scope, root, home, consent_refusal(), ask=True)
+    return code
+
+
+def cmd_codex_confiar(args):
+    refusal = human_only("codex-confiar")
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return 1
+    home, root = installer.home_dir(), installer.plugin_root()
+    scope = codex_scope(args.project)
+    if args.project and not scope:
+        print("okeanos codex-confiar --project: aqui não é um repositório git; rode na raiz do projeto.", file=sys.stderr)
+        return 1
+    if not codex_trust.installed(scope, home):
+        if not args.project and installer.orca_managed(home):
+            print("okeanos codex-confiar: o Orca gerencia o Codex e não há hooks de usuário do Okeanos; "
+                  "neste projeto use `okeanos codex-confiar --project`.", file=sys.stderr)
+        else:
+            install = "okeanos install --agent codex" + (" --project" if args.project else "")
+            print(f"okeanos codex-confiar: os hooks do Okeanos não estão instalados aqui; rode `{install}`.",
+                  file=sys.stderr)
+        return 1
+    return codex_trust.offer(scope, root, home, None, ask=not args.sim)
 
 
 def cmd_doctor(args):
@@ -232,6 +298,13 @@ def parser():
     i.add_argument("--uninstall", action="store_true", help="remove só o que o Okeanos instalou")
     i.add_argument("--dry-run", action="store_true", help="mostra o que faria, sem mudar nada")
     i.set_defaults(func=cmd_install)
+    c = sub.add_parser("codex-confiar", help="confia nos hooks do Okeanos no Codex (só num terminal interativo)",
+                       description="Mostra os hooks do Okeanos, pergunta e registra a confiança pelo próprio Codex "
+                                   "(codex app-server), só para os hooks do Okeanos que precisam de revisão. Útil "
+                                   "depois de atualizar o Okeanos. Sem terminal ou dentro de um agente, recusa.")
+    c.add_argument("--project", action="store_true", help="os hooks do projeto atual (.codex/hooks.json)")
+    c.add_argument("--sim", action="store_true", help="não pergunta (ainda exige terminal interativo)")
+    c.set_defaults(func=cmd_codex_confiar)
     sub.add_parser("doctor", help="mostra onde o Okeanos está e o que encontra aqui").set_defaults(func=cmd_doctor)
     return p
 

@@ -470,8 +470,9 @@ def plan_codex(root, home, uninstall, hooks_mode=None):
     hooks_written = any(isinstance(a, Write) and a.path in (hooks_path, toml_path) and not a.what.startswith("remove")
                         for a in actions)
     if not uninstall and hooks_written:
-        notes.append("próximo passo: abra o Codex e rode /hooks para revisar e confiar nos hooks do Okeanos; "
-                     "o Codex não roda hooks novos ou alterados antes disso.")
+        notes.append("próximo passo: confiar nos hooks do Okeanos no Codex (num terminal, o instalador pergunta a "
+                     "seguir; depois, `okeanos codex-confiar` ou /hooks no Codex); o Codex não roda hooks novos ou "
+                     "alterados antes disso.")
     return actions, notes
 
 
@@ -496,8 +497,9 @@ def plan_codex_project(root, repo, home, uninstall):
         notes.append(f"aviso: os hooks do Okeanos também estão no nível do usuário ({codex_dir(home)}); neste projeto "
                      "eles rodariam duas vezes. Tire os de usuário com `okeanos install --agent codex --uninstall` "
                      "(isso também remove skills e o bloco do AGENTS.md) ou não use --project.")
-    notes.append(f"próximo passo: abra o Codex neste projeto ({repo}), rode /hooks e confie nos hooks do Okeanos; "
-                 "o Codex não roda hooks novos ou alterados antes disso.")
+    notes.append(f"próximo passo: confiar nos hooks do Okeanos no Codex neste projeto ({repo}): num terminal, o "
+                 "instalador pergunta a seguir; depois, `okeanos codex-confiar --project` ou /hooks no Codex. "
+                 "O Codex não roda hooks novos ou alterados antes disso.")
     notes.append(f"commite {CODEX_PROJECT_HOOKS} se o time deve compartilhar esses hooks (os caminhos apontam para "
                  f"{root}); depois de atualizar o Okeanos, rode este comando de novo.")
     return actions, notes

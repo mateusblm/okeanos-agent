@@ -431,3 +431,12 @@ def test_uninstall_still_works_when_codex_fails(home, fakebin, state):
     assert code == 0, out
     assert not (home / ".codex" / "hooks.json").exists() or not okeanos_keys(home / ".codex" / "hooks.json")
     assert "hooks.state" in out
+
+
+def test_each_hook_is_reported_once_even_if_codex_lists_its_file_twice(home, fakebin, state):
+    """With cwd = HOME the fake lists ~/.codex/hooks.json as user and as project layer, like an overlap could."""
+    code, out = run_tty(home, fakebin, state, "install", "--agent", "codex", answer="s")
+    assert code == 0, out
+    assert out.count("confiado: Stop") == 1
+    [write] = writes(state)
+    assert len(write["edits"][0]["value"]) == 6
