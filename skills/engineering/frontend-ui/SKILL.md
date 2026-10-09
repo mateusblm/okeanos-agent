@@ -90,7 +90,7 @@ What to check on the changed screens:
 
 ## 7. Evidence for the publish gate
 
-If `docs/agents/verificar.md` exists, follow it to start the app, exercise the changed path and capture evidence; otherwise start the app as the project's context file says. Keep for the publish gate summary:
+Run the app the way the `implement` skill does for user-visible changes. For UI, the evidence kept for the publish gate summary is:
 
 - screenshots of the changed screen at the breakpoints and in the states that changed (before and after when the screen existed);
 - the result of the accessibility check and the keyboard pass;

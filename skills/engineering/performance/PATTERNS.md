@@ -24,7 +24,7 @@ The usual bottlenecks, each with its signature and the rule for fixing it. Open 
   - Never cache what must be fresh: balances, permissions, stock at checkout.
   - Guard hot keys against the stampede (coalesce concurrent misses behind one in-flight load, or serve stale while one request refreshes).
   - Bound it (eviction policy, memory ceiling) and watch the hit rate; never cache an origin error.
-- **Unbounded queries.** Signature: a list endpoint or job reads the whole table; memory and latency grow with data. Every list paginates with a limit and a stable order (cursor pagination for large or changing sets); select only the columns used.
+- **Unbounded queries.** Signature: a list endpoint or job reads the whole table; memory and latency grow with data. Bound every read with a limit (for a public list, pagination as `API.md` in the `codebase-design` skill decides it); select only the columns used.
 - **Heavy synchronous work on the hot path.** Signature: CPU spikes on request, latency tracks payload size, one slow request blocks others. Move it off the request (queue, background job, precompute), stream instead of buffering, batch external calls instead of looping one per item, run independent calls concurrently, and put a timeout on every external call.
 - **Memory growth.** Signature: memory climbs across requests and doesn't return. Take heap snapshots at two points and diff them; usual causes are unbounded caches or maps, listeners never removed, and payloads held longer than the request.
 

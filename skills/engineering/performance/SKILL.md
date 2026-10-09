@@ -94,7 +94,7 @@ Reverted work leaves no trace in git, which is why the same dead idea gets tried
 
 Guard the metric that justified the fix, not every number available:
 
-- **Cheap and deterministic** (bundle size, query count, allocation count, a fixed-input benchmark with a generous threshold): turn it into a test, or propose a budget check for the `onDone` list in `docs/agents/checks.json` so the hooks run it before every stop. The user approves changes to that file.
+- **Cheap and deterministic** (bundle size, query count, allocation count, a fixed-input benchmark with a generous threshold): turn it into a test, or propose a budget check for the `onDone` list in `docs/agents/checks.json` so the hooks run it before every stop. Adding a check is free; removing or loosening one needs the user's approval.
 - **Noisy or slow** (latency, page-load metrics): a CI step that compares a median over repeated runs, or field monitoring with an alert on a meaningful p75 move. Don't add a flaky gate.
 - **Nothing cheap fits**: say so in the report, and name what would detect a regression.
 

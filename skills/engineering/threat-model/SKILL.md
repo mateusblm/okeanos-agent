@@ -18,9 +18,9 @@ Run it when the change touches any of:
 - calls to third-party services;
 - LLM calls (prompts built from user input, tool use, model output used as code or commands).
 
-If none applies, say so in one line and skip it.
+When the change alters a public contract (HTTP route or payload, CLI flags or output, persisted or wire schema), read `API.md` in the `codebase-design` skill for boundary validation, untrusted third-party responses and idempotency, even if no trigger above applies.
 
-When the change also alters a public contract (HTTP route or payload, CLI flags or output, persisted or wire schema), read `API.md` in the `codebase-design` skill for boundary validation, untrusted third-party responses and idempotency.
+If none applies, say so in one line and skip it.
 
 ## The four questions
 
