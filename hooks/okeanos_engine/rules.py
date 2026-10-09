@@ -17,7 +17,7 @@ from . import approvals
 from .model import (ALLOW, ASK, BLOCK, DENY, EDIT, MULTI_EDIT, POST_TOOL, PRE_TOOL, PROMPT,
                     SESSION_START, SHELL, STOP, WRITE, Decision)
 from .packages import check_package, package_requests
-from .plumbing import fallback_dir, git, load_checks, load_state, run, save_state, state_path, tail
+from .plumbing import committed, fallback_dir, git, load_checks, load_state, run, save_state, state_path, tail
 
 MAX_BLOCKS = 3
 HANDOFF_MARK = "[Okeanos] precisa de você"
@@ -285,13 +285,9 @@ def bash_write_targets(segment, toks):
 def repo_targets(root, cwd, targets):
     """The repo-relative paths among a shell segment's targets."""
     for target in targets:
-        full = os.path.normpath(target if os.path.isabs(target) else os.path.join(cwd or root, target))
-        if full.startswith(root + os.sep):
-            yield os.path.relpath(full, root)
-
-
-def committed(root, rel):
-    return git(root, "cat-file", "-e", f"HEAD:{rel}") is not None
+        hit = repo_file(root, os.path.join(cwd or root, target))
+        if hit:
+            yield hit[1]
 
 
 def committed_tests_touched(root, cwd, targets):
@@ -654,7 +650,7 @@ def pre_edit(event, ctx):
         return pre_edit_ruler(event, ctx, full)
     if not is_test(rel, load_checks(root)):
         return Decision()
-    if git(root, "cat-file", "-e", f"HEAD:{rel}") is None:
+    if not committed(root, rel):
         return Decision()  # not committed yet: still being written
     if event.tool == WRITE:
         try:
@@ -685,6 +681,7 @@ RULER_SHELL = ("[Okeanos] este comando escreve, move ou apaga a régua de qualid
                "Para acrescentar checagens ou baixar o maxChangedLines, edite o arquivo com a ferramenta de edição, "
                "que não pede.")
 MAX_VARIANTS = 8
+MAX_LISTED = 8  # items shown in one notice
 
 
 def ruler_loosening(old_text, new_text):
@@ -770,11 +767,7 @@ def pre_edit_ruler(event, ctx, full):
     if event.tool == WRITE:
         news = [event.content or ""]
     else:
-        try:
-            with open(full, errors="ignore") as f:
-                current = f.read()
-        except OSError:
-            current = head
+        current = file_text(root, RULER) if os.path.exists(full) else head
         news = apply_edits(current, event.edits)
     if news is None:
         found = ["a edição não se aplica ao arquivo atual, então não dá para conferir o resultado"]
@@ -782,7 +775,7 @@ def pre_edit_ruler(event, ctx, full):
         found = list(dict.fromkeys(note for new in news for note in ruler_loosening(head, new)))
     if not found:
         return Decision()
-    detail = "\n".join(f"- {note}" for note in found[:8])
+    detail = "\n".join(f"- {note}" for note in found[:MAX_LISTED])
     return resolve_asks([([RULER], f"[Okeanos] `{RULER}` é a régua de qualidade commitada (definição de pronto), "
                                    f"e esta mudança a afrouxa:\n{detail}\nAfrouxar a régua exige a sua aprovação. "
                                    "Acrescentar checagens, apertar o maxChangedLines ou acrescentar testPatterns não pede.")], ctx)
@@ -846,43 +839,31 @@ def fingerprint(root, base, files):
 def tamper_report(root, base, checks):
     if not base:
         return []
-    notes = []
+    notes, deleted = [], set()
     for line in (git(root, "diff", "--name-status", base) or "").splitlines():
         parts = line.split("\t")
         if len(parts) >= 2 and parts[0].startswith("D") and is_test(parts[1], checks):
             notes.append(f"teste apagado: {parts[1]}")
-    diff = git(root, "diff", base, "-U0", "--no-color", timeout=20) or ""
-    current, removed, added = None, {}, {}
-    for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            current = line[6:]
-        elif current and is_test(current, checks):
-            if line.startswith("+") and not line.startswith("+++"):
-                body = line[1:].strip()
-                added.setdefault(current, []).append(body)
-                if SKIP_MARKERS.search(body):
-                    notes.append(f"teste desligado (skip/only) em {current}: {body[:80]}")
-            elif line.startswith("-") and not line.startswith("---"):
-                removed.setdefault(current, []).append(line[1:].strip())
-    for rel, lines in removed.items():
-        now = norm_code("\n".join(added.get(rel, [])))
-        gone = [l for l in lines if ASSERTION.search(l) and norm_code(l) not in now]
+            deleted.add(parts[1])
+    gone_by_file = []
+    for rel, (added, removed) in session_diff(root, base).items():
+        if rel in deleted or not is_test(rel, checks):
+            continue
+        added = [t.strip() for _, t in added]
+        notes += [f"teste desligado (skip/only) em {rel}: {body[:80]}" for body in added if SKIP_MARKERS.search(body)]
+        now = norm_code("\n".join(added))
+        gone = [t for _, t in removed if ASSERTION.search(t) and norm_code(t) not in now]
         if gone:
-            notes.append(f"{len(gone)} asserção(ões) removida(s) ou alterada(s) em {rel}")
-    return notes
+            gone_by_file.append(f"{len(gone)} asserção(ões) removida(s) ou alterada(s) em {rel}")
+    return notes + gone_by_file
 
 
 def suppression_report(root, base):
     if not base:
         return []
-    notes, current = [], None
-    for line in (git(root, "diff", base, "-U0", "--no-color", timeout=20) or "").splitlines():
-        if line.startswith("+++ b/"):
-            current = line[6:]
-        elif current and line.startswith("+") and not line.startswith("+++") and not is_doc(current):
-            body = line[1:].strip()
-            if SUPPRESSION.search(body):
-                notes.append(f"supressão nova em {current}: {body[:80]}")
+    notes = [f"supressão nova em {rel}: {t.strip()[:80]}"
+             for rel, (added, _) in session_diff(root, base).items() if not is_doc(rel)
+             for _, t in added if SUPPRESSION.search(t)]
     return notes[:10]
 
 
@@ -962,7 +943,8 @@ def session_diff(root, base):
 
 
 def norm_line(text):
-    return re.sub(r"\s+", " ", text.strip().rstrip(",").replace("'", '"'))
+    """norm_code for one diff line, also ignoring the trailing comma a reordered list adds or drops."""
+    return norm_code(text.strip().rstrip(","))
 
 
 def net_lines(added, removed):
@@ -1062,7 +1044,7 @@ def config_notes(root, base, diff):
             grown = (ignore_items(added, file_text(root, rel))
                      - ignore_items(removed, file_text(root, rel, base)))
             if grown:
-                notes.append(f"{rel}: lista de ignore cresce: " + ", ".join(sorted(grown)[:8]))
+                notes.append(f"{rel}: lista de ignore cresce: " + ", ".join(sorted(grown)[:MAX_LISTED]))
         for label, pattern, only, _ in LIMITS:
             if only and not only.search(rel):
                 continue

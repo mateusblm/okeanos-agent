@@ -14,7 +14,7 @@ import time
 
 from . import approvals, codex_trust, githooks, installer
 from .cli import metrics_summary
-from .plumbing import git, repo_root
+from .plumbing import committed, git, repo_root
 
 AGENT_CLIS = ("claude", "codex", "copilot", "cursor", "cursor-agent")
 # Set by the agents in the shell where they run tools (Codex 0.161: CODEX_THREAD_ID, CODEX_SESSION_ID,
@@ -87,7 +87,7 @@ def normalize_target(root, raw):
     if not full.startswith(real_root + os.sep):
         return None, f"`{raw}` fica fora do repositório."
     rel = os.path.relpath(full, real_root)
-    if git(root, "cat-file", "-e", f"HEAD:{rel}") is None:
+    if not committed(root, rel):
         return None, (f"`{raw}` não é um arquivo commitado. Alvos aprováveis: um teste commitado, "
                       "o `docs/agents/checks.json` commitado, `push` ou `pacote:<nome>`. Segredos, force push, --no-verify, rm -r fora do repo "
                       "e pacote inexistente nunca são aprováveis.")
