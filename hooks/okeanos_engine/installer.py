@@ -13,9 +13,11 @@ agent CLIs the installer runs. Codex's directory is $CODEX_HOME or ~/.codex, Cop
 is $COPILOT_HOME or ~/.copilot (both variables are ignored when OKEANOS_HOME_DIR is set).
 Codex, Copilot and Cursor share the skill links in ~/.agents/skills: uninstalling one agent
 keeps them while another still has Okeanos.
-Codex hooks go to hooks.json, or, when another tool manages that file (Orca rewrites it and drops our
-entries) or with --codex-hooks toml, to [hooks] tables in config.toml between `# okeanos:start` and
-`# okeanos:end`, appended at the end; the rest of config.toml is never rewritten.
+Codex hooks go to hooks.json, or, with --codex-hooks toml, to [hooks] tables in config.toml between
+`# okeanos:start` and `# okeanos:end`, appended at the end; the rest of config.toml is never rewritten.
+When Orca manages the Codex home (`.orca-managed-home` in it), Orca regenerates both files on launch, so
+no user-level hooks are written (an old config.toml block is removed): `--agent codex --project` writes
+them to the repository's .codex/hooks.json instead.
 Claude Code is installed through its own marketplace commands; its settings are
 never touched. Cursor gets hooks in ~/.cursor/hooks.json; it has no file for global
 rules, so `--project` writes the process as a project rule (.cursor/rules/okeanos.mdc)
@@ -316,7 +318,10 @@ TOML_START = "# okeanos:start"
 TOML_END = "# okeanos:end"
 TOML_BLOCK_RE = re.compile(r"(?m)^" + re.escape(TOML_START) + r"[^\n]*\n(.*?)^" + re.escape(TOML_END) + r"[^\n]*(?:\n|\Z)", re.S)
 TOML_HEADER_RE = re.compile(r"(?m)^[ \t]*\[")
-ORCA_MARK = ".orca/agent-hooks"
+ORCA_MARKER = ".orca-managed-home"
+ORCA_NOTE = ("Codex gerenciado pelo Orca: hooks do Okeanos precisam ser instalados por projeto: "
+             "okeanos install --agent codex --project (em cada projeto)")
+CODEX_PROJECT_HOOKS = os.path.join(".codex", "hooks.json")
 
 
 def toml_string(value):
@@ -421,14 +426,14 @@ def codex_toml_has_block(cdir):
     return bool(TOML_BLOCK_RE.search(read(os.path.join(cdir, "config.toml")) or ""))
 
 
-def managed_by_orca(data):
-    return any(isinstance(h, dict) and ORCA_MARK in str(h.get("command", ""))
-               for groups in data.get("hooks", {}).values() for g in groups for h in g.get("hooks", []))
+def orca_managed(home):
+    """Orca regenerates this Codex home (hooks.json and config.toml) on launch: user-level hooks don't survive."""
+    return os.path.exists(os.path.join(codex_dir(home), ORCA_MARKER))
 
 
 def plan_codex(root, home, uninstall, hooks_mode=None):
-    """hooks_mode: "json" (hooks.json), "toml" ([hooks] tables in config.toml) or None to pick: toml when another
-    tool (Orca) manages hooks.json, since it rewrites that file and drops our entries."""
+    """hooks_mode: "json" (hooks.json, the default) or "toml" ([hooks] tables in config.toml). Under Orca no
+    user-level hooks are written whatever the mode; leftovers from earlier installs are removed."""
     notes, actions = [], []
     cdir = codex_dir(home)
     toml_path = os.path.join(cdir, "config.toml")
@@ -436,8 +441,8 @@ def plan_codex(root, home, uninstall, hooks_mode=None):
 
     hooks_path = os.path.join(cdir, "hooks.json")
     current = load_hooks_json(hooks_path)
-    orca = managed_by_orca(current)
-    mode = hooks_mode or ("toml" if orca else "json")
+    orca = orca_managed(home)
+    mode = None if orca else (hooks_mode or "json")
     new = strip_owned(current, "codex")
     if not uninstall and mode == "json":
         new.setdefault("hooks", {})
@@ -446,7 +451,7 @@ def plan_codex(root, home, uninstall, hooks_mode=None):
     if new != current and (current or not uninstall):
         actions.append(Write(hooks_path, json.dumps(new, indent=2, ensure_ascii=False) + "\n",
                              "hooks" if mode == "json" and not uninstall else "remove hooks"))
-    actions += codex_toml_actions(root, toml_path, uninstall or mode == "json")
+    actions += codex_toml_actions(root, toml_path, uninstall or mode != "toml")
 
     actions += block_actions(root, os.path.join(cdir, "AGENTS.md"), uninstall)
     if not uninstall:
@@ -456,10 +461,11 @@ def plan_codex(root, home, uninstall, hooks_mode=None):
                          "AGENTS.md global; o processo do Okeanos não será carregado enquanto ele existir.")
 
     actions += shared_skill_actions("codex", root, home, uninstall, notes)
+    if not uninstall and orca:
+        notes.append(ORCA_NOTE + f" (o Orca regenera {cdir}, inclusive hooks.json e config.toml"
+                     + (", por isso --codex-hooks foi ignorado)." if hooks_mode else ")."))
     if not uninstall and mode == "toml":
-        why = (f"o {hooks_path} é gerenciado pelo Orca (hooks em {ORCA_MARK}), que reescreve o arquivo"
-               if orca and not hooks_mode else "--codex-hooks toml")
-        notes.append(f"hooks em {toml_path} ([hooks]), não no hooks.json: {why}. "
+        notes.append(f"hooks em {toml_path} ([hooks]), não no hooks.json: --codex-hooks toml. "
                      "O Codex junta os hooks dos dois arquivos (e avisa disso ao iniciar).")
     hooks_written = any(isinstance(a, Write) and a.path in (hooks_path, toml_path) and not a.what.startswith("remove")
                         for a in actions)
@@ -467,6 +473,52 @@ def plan_codex(root, home, uninstall, hooks_mode=None):
         notes.append("próximo passo: abra o Codex e rode /hooks para revisar e confiar nos hooks do Okeanos; "
                      "o Codex não roda hooks novos ou alterados antes disso.")
     return actions, notes
+
+
+def plan_codex_project(root, repo, home, uninstall):
+    """The Okeanos hooks merged into <repo>/.codex/hooks.json; the project's own hooks are kept."""
+    notes, actions = [], []
+    path = os.path.join(repo, CODEX_PROJECT_HOOKS)
+    current = load_hooks_json(path)
+    new = strip_owned(current, "codex")
+    if uninstall:
+        if current and new != current:
+            leftover = {k: v for k, v in new.items() if k != "hooks"} or any(new.get("hooks", {}).values())
+            actions.append(Write(path, json.dumps(new, indent=2, ensure_ascii=False) + "\n", "remove hooks do projeto")
+                           if leftover else Remove(path, "remove hooks do projeto"))
+        return actions, notes
+    new.setdefault("hooks", {})
+    for event, groups in codex_hooks(root).items():
+        new["hooks"].setdefault(event, []).extend(groups)
+    if new != current:
+        actions.append(Write(path, json.dumps(new, indent=2, ensure_ascii=False) + "\n", "hooks do projeto"))
+    if not orca_managed(home) and codex_user_hooks(home):
+        notes.append(f"aviso: os hooks do Okeanos também estão no nível do usuário ({codex_dir(home)}); neste projeto "
+                     "eles rodariam duas vezes. Tire os de usuário com `okeanos install --agent codex --uninstall` "
+                     "(isso também remove skills e o bloco do AGENTS.md) ou não use --project.")
+    notes.append(f"próximo passo: abra o Codex neste projeto ({repo}), rode /hooks e confie nos hooks do Okeanos; "
+                 "o Codex não roda hooks novos ou alterados antes disso.")
+    notes.append(f"commite {CODEX_PROJECT_HOOKS} se o time deve compartilhar esses hooks (os caminhos apontam para "
+                 f"{root}); depois de atualizar o Okeanos, rode este comando de novo.")
+    return actions, notes
+
+
+def codex_user_hooks(home):
+    """Okeanos hooks at user level (hooks.json or the config.toml block)."""
+    cdir = codex_dir(home)
+    try:
+        hooks = load_hooks_json(os.path.join(cdir, "hooks.json"))
+    except Abort:
+        hooks = {}
+    return strip_owned(hooks, "codex") != hooks or codex_toml_has_block(cdir)
+
+
+def codex_project_installed(repo):
+    try:
+        hooks = load_hooks_json(os.path.join(repo, CODEX_PROJECT_HOOKS))
+    except Abort:
+        return False
+    return strip_owned(hooks, "codex") != hooks
 
 
 def codex_installed(root, home):
@@ -804,11 +856,14 @@ def found(agent, home):
     return cursor_found(home) if agent == "cursor" else shutil.which(agent)
 
 
-def run_project(names, root, uninstall, dry_run, out):
-    """`okeanos install --agent cursor --project`: the process rule in the current repository."""
-    if names != ["cursor"]:
-        out("okeanos install: --project só vale para o Cursor: okeanos install --agent cursor --project")
+def run_project(names, root, home, uninstall, dry_run, out):
+    """`okeanos install --agent cursor|codex --project`: the Cursor process rule, or the Codex hooks, in the
+    current repository."""
+    if names not in (["cursor"], ["codex"]):
+        out("okeanos install: --project vale para um agente só, cursor ou codex: "
+            "okeanos install --agent cursor --project, ou okeanos install --agent codex --project")
         return 2
+    agent = names[0]
     from .plumbing import repo_root
     repo = repo_root(os.getcwd())
     if not repo:
@@ -817,11 +872,12 @@ def run_project(names, root, uninstall, dry_run, out):
     prefix = "(simulação) " if dry_run else ""
     out(f"{prefix}Okeanos {'desinstalação' if uninstall else 'instalação'} no projeto {repo}")
     try:
-        actions, notes = plan_cursor_project(root, repo, uninstall)
+        actions, notes = (plan_cursor_project(root, repo, uninstall) if agent == "cursor"
+                          else plan_codex_project(root, repo, home, uninstall))
     except Abort as e:
-        out(f"cursor (projeto): ERRO, nada instalado: {e}")
+        out(f"{agent} (projeto): ERRO, nada instalado: {e}")
         return 1
-    return 0 if report("cursor (projeto)", actions, notes, dry_run, prefix, out) else 1
+    return 0 if report(f"{agent} (projeto)", actions, notes, dry_run, prefix, out) else 1
 
 
 def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False, codex_hooks=None):
@@ -833,7 +889,7 @@ def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False, co
                                             for n in bad) + f". Suportados: {', '.join(SUPPORTED)}.")
         return 2
     if project:
-        return run_project(names, root, uninstall, dry_run, out)
+        return run_project(names, root, home, uninstall, dry_run, out)
     prefix = "(simulação) " if dry_run else ""
     out(f"{prefix}Okeanos {'desinstalação' if uninstall else 'instalação'} a partir de {root}")
     if not names:
