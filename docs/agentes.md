@@ -2,6 +2,50 @@
 
 Detalhes de instalação e de comportamento por agente. Para o resumo, veja o [README](../README.md#instalação).
 
+## Instalar, atualizar e remover
+
+### Claude Code
+
+```bash
+claude plugin marketplace add mateusblm/okeanos-agent
+claude plugin install okeanos@okeanos
+```
+
+| Para | Comando |
+| :- | :- |
+| Atualizar | `claude plugin marketplace update okeanos && claude plugin update okeanos@okeanos` |
+| Desligar | `claude plugin disable okeanos@okeanos` |
+| Religar | `claude plugin enable okeanos@okeanos` |
+| Remover | `claude plugin uninstall okeanos@okeanos` |
+
+Sessões abertas antes de instalar ou atualizar precisam ser reiniciadas.
+
+### Codex, Copilot e Cursor
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mateusblm/okeanos-agent/main/install.sh | sh
+```
+
+O script precisa de `git` e `python3`. Ele clona o repositório em `~/.local/share/okeanos` (ou o atualiza) e roda `okeanos install`, que detecta os agentes no PATH e instala em cada um, inclusive no Claude Code, pelo marketplace. Também liga a CLI `okeanos` em `~/.local/bin` e avisa se essa pasta não está no PATH.
+
+| Para | Comando |
+| :- | :- |
+| Só alguns agentes | `okeanos install --agent codex,cursor` (ou `--agent` repetido): `claude`, `codex`, `copilot`, `cursor` |
+| Ver sem mudar nada | `okeanos install --dry-run` |
+| Atualizar | rode `install.sh` de novo (`git pull` e reinstalação idempotente) |
+| Remover | `okeanos install --uninstall [--agent ...]` |
+| Confiar nos hooks do Codex | `okeanos codex-confiar [--project] [--sim]`, num terminal seu (o `install` já pergunta) |
+| Diagnosticar | `okeanos doctor`: onde o Okeanos está, o que o repositório tem, quais agentes estão no PATH e o que está instalado em cada um |
+
+Depois de instalar, o que cada agente pede de você:
+
+| Agente | Depois do `okeanos install` |
+| :- | :- |
+| Codex | Responda `s` quando ele perguntar se pode autorizar os hooks. Se o seu Codex roda pelo Orca, instale também em cada projeto: `okeanos install --agent codex --project`. |
+| Copilot | Reinicie o Copilot CLI. |
+| Cursor | Em cada projeto: `okeanos install --agent cursor --project`. |
+
+
 ## Como o instalador mexe nos arquivos
 
 O instalador só mexe no que é do Okeanos: o bloco entre `<!-- okeanos:start -->` e `<!-- okeanos:end -->` nos arquivos de instruções, os handlers de hook cujo comando é o do Okeanos e os links para o clone. Antes de mudar um arquivo, guarda a versão anterior em `<arquivo>.okeanos-bak`. Se um arquivo de configuração existente não for JSON ou TOML válido, aquele agente é pulado sem nenhuma escrita e a mensagem diz qual arquivo corrigir. As skills ficam em `~/.agents/skills` como links para o clone; uma skill com o mesmo nome e outro conteúdo é pulada, com aviso. Desinstalar um agente mantém as skills enquanto outro ainda usa o Okeanos.

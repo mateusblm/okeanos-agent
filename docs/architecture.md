@@ -576,7 +576,7 @@ Não há ADRs em `docs/adr/`. Decisões relevantes, todas sem ADR:
 
 | Item | Tipo | Impacto | Origem |
 | :- | :- | :- | :- |
-| Autoaprovação residual no Codex e no Cursor: lá quem aprova é `okeanos aprovar`, e um agente rodando como o mesmo usuário do sistema poderia escrever um programa novo que contorne as checagens de `self_approval` (que reconhecem atalhos conhecidos, não toda forma de escrever no arquivo). | risco | Alto: a aprovação de teste ou de push vira fraca nesses agentes. Barreiras seguintes: stop, git hooks, CI. | README (Aprovações) |
+| Autoaprovação residual no Codex e no Cursor: lá quem aprova é `okeanos aprovar`, e um agente rodando como o mesmo usuário do sistema poderia escrever um programa novo que contorne as checagens de `self_approval` (que reconhecem atalhos conhecidos, não toda forma de escrever no arquivo). | risco | Alto: a aprovação de teste ou de push vira fraca nesses agentes. Barreiras seguintes: stop, git hooks, CI. | [guia](guia.md#aprovações) |
 | Copilot não põe variável de sessão no shell das ferramentas: a recusa de `okeanos aprovar` ali depende só do TTY e dos hooks. | risco | Médio. | portabilidade |
 | `CURSOR_AGENT` não é documentada oficialmente; se sumir, a CLI perde um dos sinais de shell de agente. | risco | Médio: sobra o TTY e os hooks. | portabilidade |
 | Copilot e Cursor nunca rodaram uma sessão real com o Okeanos; os dialetos foram testados com payloads montados da documentação. | risco | Alto: um formato diferente faz o dialeto devolver `None` e tudo passa (fail-open). | portabilidade |

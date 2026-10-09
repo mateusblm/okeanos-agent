@@ -1,6 +1,6 @@
 # Proteções do Okeanos
 
-Como funcionam as aprovações, os hooks, os git hooks e o CI. Para o resumo, veja o [README](../README.md#aprovações).
+Como funcionam as aprovações, os hooks, os git hooks e o CI. Para o resumo, veja o [guia](guia.md#aprovações).
 
 ## Aprovações
 
