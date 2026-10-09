@@ -1,0 +1,3 @@
+# Credits
+
+The slices (one vertical behaviour per slice, compiling and passing, one commit each), the **notei, não mexi** list and the step that checks a framework API against the docs for the version in the manifest are adapted from [Addy Osmani](https://github.com/addyosmani)'s [`incremental-implementation`](https://github.com/addyosmani/agent-skills/tree/main/skills/incremental-implementation) and [`source-driven-development`](https://github.com/addyosmani/agent-skills/tree/main/skills/source-driven-development) (MIT, Copyright (c) 2025 Addy Osmani). The adaptation keeps only the rules, without the slicing strategies, flags and citation formats, and sends the noticed-but-untouched list to the publish gate.

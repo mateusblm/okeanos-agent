@@ -1,6 +1,11 @@
 ---
 name: implement
 description: "Implement a piece of work based on a spec or set of tickets."
+metadata:
+  credits:
+    skill: incremental-implementation, source-driven-development
+    author: Addy Osmani
+    url: "https://github.com/addyosmani/agent-skills"
 ---
 
 Implement the work described by the user in the spec or tickets.
@@ -9,7 +14,17 @@ If the user passes a ticket reference, fetch it from the issue tracker and state
 
 Use the `tdd` skill where possible, at pre-agreed seams.
 
-Run typechecking regularly, single test files regularly, and the full test suite once at the end.
+Run typechecking regularly, single test files regularly, and the full test suite once at the end. Don't rerun a check that passed on code that hasn't changed since.
+
+Deliver in slices:
+
+- Each slice is one vertical behaviour (a thin path through every layer it needs), not a layer. Riskiest slice first when one is uncertain.
+- After each slice the project compiles and the existing tests pass. Then commit it, one commit per slice, with a message that says why. A refactor gets its own commit, apart from the behaviour.
+- Never leave the branch broken between slices.
+
+Touch only what the ticket needs. When you notice something outside its scope (a bug, a smell, a missing test, an outdated doc), don't fix it: add it to a **notei, não mexi** list, one line each with the file. Show the list in the publish gate summary, so the user decides what becomes a ticket.
+
+Before using a framework or library API, read its version in the manifest or lockfile and check the official docs for that version. Cite the page when the choice isn't obvious. If you couldn't check, say so to the user and mark it unverified. When the docs and the existing code disagree, ask.
 
 Before review, when the change is visible to a user (UI, HTTP API, CLI output), run the application and exercise the changed path once:
 
