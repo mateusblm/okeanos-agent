@@ -199,6 +199,7 @@ O agente chama a maioria das skills sozinho, conforme a rota. As marcadas como *
 - **[research](skills/engineering/research/SKILL.md)**: pesquisa em fontes primárias, salva como Markdown no repo.
 - **[wizard](skills/engineering/wizard/SKILL.md)**: gera um wizard em bash para passos que só uma pessoa pode fazer (credenciais, dashboards, provisionamento).
 - **[domain-modeling](skills/engineering/domain-modeling/SKILL.md)**: constrói o modelo de domínio do projeto: `GLOSSARY.md` e ADRs.
+- **[frontend-ui](skills/engineering/frontend-ui/SKILL.md)**: constrói UI de produção com os tokens do projeto, todos os estados (loading, vazio, erro, sem permissão), acessibilidade e breakpoints, conferida no navegador com perfil isolado.
 - **[codebase-design](skills/engineering/codebase-design/SKILL.md)**: vocabulário para desenhar módulos profundos e decidir onde ficam as seams.
 - **[grilling](skills/productivity/grilling/SKILL.md)**: entrevista sobre um plano, decisão ou ideia. Base das outras skills de entrevista.
 - **[grill-me](skills/productivity/grill-me/SKILL.md)**: entrevista para afiar um plano, sem gerar docs.
