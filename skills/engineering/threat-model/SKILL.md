@@ -20,6 +20,8 @@ Run it when the change touches any of:
 
 If none applies, say so in one line and skip it.
 
+When the change also alters a public contract (HTTP route or payload, CLI flags or output, persisted or wire schema), read `API.md` in the `codebase-design` skill for boundary validation, untrusted third-party responses and idempotency.
+
 ## The four questions
 
 Work through them using the C4 diagram from `docs/architecture.md` when it exists (it shows the boundaries), otherwise a quick list of the components the change touches.

@@ -1,6 +1,16 @@
 ---
 name: codebase-design
-description: Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, or when another skill needs the deep-module vocabulary.
+description: Shared vocabulary for designing deep modules. Use when the user wants to design or improve a module's interface, find deepening opportunities, decide where a seam goes, make code more testable or AI-navigable, design a public contract (HTTP route, CLI, persisted or wire schema), or when another skill needs the deep-module vocabulary.
+metadata:
+  credits:
+    - skill: api-and-interface-design
+      author: Addy Osmani
+      license: MIT
+      url: "https://github.com/addyosmani/agent-skills/tree/main/skills/api-and-interface-design"
+    - skill: principle-make-operations-idempotent
+      author: Lauren Tan
+      license: MIT
+      url: "https://github.com/cursor/plugins/tree/main/pstack/skills/principle-make-operations-idempotent"
 ---
 
 # Codebase Design
@@ -112,3 +122,4 @@ Good interfaces make testing natural:
 
 - **Deepening a cluster given its dependencies**, see [DEEPENING.md](DEEPENING.md): dependency categories, seam discipline, and replace-don't-layer testing.
 - **Exploring alternative interfaces**, see [DESIGN-IT-TWICE.md](DESIGN-IT-TWICE.md): spin up parallel sub-agents to design the interface several radically different ways, then compare on depth, locality, and seam placement.
+- **Designing a public contract** (HTTP route or payload, CLI flags or output, persisted or wire schema, config format, exported SDK surface), see [API.md](API.md): one error format, additive changes, pagination, and idempotency keys.

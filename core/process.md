@@ -62,6 +62,7 @@ Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explí
   - nenhum `[PRECISA ESCLARECER]` aberto;
   - fora de escopo preenchido;
   - modelo de ameaças feito, se a mudança toca um gatilho de segurança;
+  - mudança de contrato público: formato de erro, compatibilidade aditiva, paginação e idempotência decididos (`codebase-design`, API.md); quebra de compatibilidade dita, com caminho aditivo ou de versão;
   - (Feature grande) cada ticket com ~200 a 400 linhas e cabendo num contexto novo, e as ondas de dependência listadas.
 
   Item ❌ se resolve antes do G1, não depois. Depois da pré-checagem: o que será construído, as seams de teste e os tickets ou passos. Termine com a pergunta de aprovação.
