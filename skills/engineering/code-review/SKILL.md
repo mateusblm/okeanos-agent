@@ -1,6 +1,16 @@
 ---
 name: code-review
 description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
+metadata:
+  credits:
+    - skill: principle-test-behavior-not-implementation
+      author: Lauren Tan
+      license: MIT
+      url: "https://github.com/cursor/plugins/tree/main/pstack/skills/principle-test-behavior-not-implementation"
+    - skill: blast-radius
+      author: Lauren Tan
+      license: MIT
+      url: "https://github.com/cursor/plugins/tree/main/pstack/skills/blast-radius"
 ---
 
 Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
@@ -67,6 +77,17 @@ Before spawning reviewers, gather what tools can say for certain, so the reviewe
 
 Paste all of it into both sub-agent prompts.
 
+### 3c. Impact radius, only when the diff touches shared code
+
+The diff touches shared code when it changes an exported symbol that other modules use, a public contract (HTTP route or payload, CLI flags or output, a persisted or wire schema, a config format), or a shared utility. If it touches none of these, skip this step and produce no impact-radius block.
+
+Otherwise, you (the coordinator, not a third sub-agent) build the block from the step 3b signals plus a small search:
+
+- **Consumers outside the diff**: search the repo for every use of each changed shared symbol or contract and list the call sites the diff doesn't touch, as `file:line`. Look past symbol search where it applies: the same field read from JSON, a column, a flag, a config key. A search that finds nothing is an answer; say so.
+- **The one fact the change is safe because of**: most risky-looking changes are safe because of a single fact. State it and prove it with a command or test you ran, pasting the result (e.g. "no caller passes `null`: `grep -rn 'parse(' src` shows 7 calls, all with literals"). If you can't prove it, write **unproven** and say what would prove it.
+
+Don't pass the block to the sub-agents and don't use it to rerank their findings. A consumer the change breaks is a correctness bug: tag it with the same severity rules as step 4b.
+
 ### 4. Spawn both sub-agents in parallel
 
 Issue both sub-agent calls together, in the foreground, and aggregate the reports they return.
@@ -83,7 +104,7 @@ Issue both sub-agent calls together, in the foreground, and aggregate the report
 - The diff command and commit list.
 - The path or fetched contents of the spec.
 - The deterministic signals from step 3b.
-- The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong; (d) test tampering: tests deleted, skipped, or loosened, assertions changed to match what the code does instead of what the spec asks, expected values recomputed the way the code computes them. Quote the spec line for each finding. Under 400 words."
+- The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong; (d) test tampering: tests deleted, skipped, or loosened, assertions changed to match what the code does instead of what the spec asks, expected values recomputed the way the code computes them, and tests that don't test: for each new or changed test, would it still pass if every imported function returned `undefined`/`None`/empty? If yes, it's hollow; name its pattern (mock-only: asserts only the mock it set up; constant pin: asserts a literal or config value equals the same literal; self-asserting fixture: checks data it just built while the code under test never runs). Quote the spec line for each finding. Under 400 words."
 
 If the spec is missing, skip the Spec sub-agent and note this in the final report.
 
@@ -97,7 +118,7 @@ Reviewers asked to find problems over-report; the severity line and the explicit
 
 ### 5. Aggregate
 
-Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings, because the two axes are deliberately separate (see _Why two axes_).
+Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. When step 3c ran, add its block under its own `## Raio de impacto` heading after them; when it didn't, omit the heading entirely. Do **not** merge or rerank findings, because the two axes are deliberately separate (see _Why two axes_).
 
 End with a one-line summary: findings per axis by severity, and the worst issue _within each axis_ (if any). Only **blocking** findings hold the publish gate; the rest go to the user as a list they can accept or defer. Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
 
