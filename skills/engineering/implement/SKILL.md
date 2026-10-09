@@ -26,6 +26,8 @@ Touch only what the ticket needs. When you notice something outside its scope (a
 
 Before using a framework or library API, read its version in the manifest or lockfile and check the official docs for that version. Cite the page when the choice isn't obvious. If you couldn't check, say so to the user and mark it unverified. When the docs and the existing code disagree, ask.
 
+When the change touches production UI (components, screens, styles), use the `frontend-ui` skill while building it.
+
 Before review, when the change is visible to a user (UI, HTTP API, CLI output), run the application and exercise the changed path once:
 
 - If `docs/agents/verificar.md` exists, follow it: start the app as **Subir** says, run **Checar** until it is ready, exercise the changed path the way **Exercitar** does (the changed path, not only the main one), capture what **Evidência** asks for, then run **Limpar** and confirm the evidence survived it. Attach that evidence to the publish gate summary. When a step marked `(não verificado)` works, remove the mark; when a step is wrong, fix the file and tell the user.

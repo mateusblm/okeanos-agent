@@ -102,6 +102,8 @@ Once a variant has won, capture the answer (which variant and why), then capture
 - **Sub-shape A**: fold the winner into the existing page; drop the losing variants and the switcher from main.
 - **Sub-shape B**: promote the winning variant to a real route; drop the throwaway route and the switcher from main.
 
+To build the winner as production UI, use the `frontend-ui` skill: it takes the variant as the visual reference for its design contract.
+
 The full set of variants is the primary source, so it lands on the throwaway branch, not the bin, since variant components and the switcher left in the main branch rot fast and confuse the next reader.
 
 ## Anti-patterns

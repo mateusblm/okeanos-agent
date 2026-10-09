@@ -80,7 +80,7 @@ Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explí
   - **Rollback (Feature e acima):** 3 linhas: como desfazer (revert, flag), se dados mudam de forma irreversível e em qual fase de expand/migrate/contract está a migração, e qual sinal indica que é hora de reverter.
   - **Feature flag nova:** ticket de remoção criado, com data.
   - **Observabilidade (serviço):** falhas novas logadas ou contadas, chamadas externas com timeout.
-  - **UI:** controles com rótulo e usáveis por teclado, contraste ok; e o quanto o bundle cresceu, se o projeto mede (medido como na skill `performance`).
+  - **UI:** o que a skill `frontend-ui` conferiu (estados, breakpoints, acessibilidade, console limpo), com screenshots; e o quanto o bundle cresceu, se o projeto mede (medido como na skill `performance`).
   - **Docs:** o que o `as-built` marcou como possível doc desatualizado; sem `as-built`, os docs existentes que a mudança deixou desatualizados.
   - **Força dos testes (Feature grande, Épico, lógica crítica):** resultado do `mutation-check` e, com lógica de domínio, do `property-tests`.
   - **Notei, não mexi:** o que o `implement` notou fora do escopo (bug, smell, teste faltando), um por linha, para o usuário decidir o que vira ticket. Só se a lista não está vazia.
