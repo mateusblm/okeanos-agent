@@ -140,7 +140,15 @@ okeanos revogar [alvo]               # remove uma, ou todas sem alvo
 
 A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. Os hooks consultam as aprovações antes de perguntar ou bloquear.
 
-O agente não consegue se autoaprovar. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE`, as variáveis `CODEX_*` que o Codex põe no shell das ferramentas ou `CURSOR_AGENT`). Os hooks negam ao agente rodar esses comandos, escrever em `.git/okeanos/` e remover ou contornar os git hooks (`okeanos githooks --uninstall`, escrita em `.git/hooks`, troca de `core.hooksPath`). Segredos, force push, `--no-verify`, `rm -r` fora do repositório e pacote inexistente nunca são aprováveis.
+As aprovações são do humano. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE`, as variáveis `CODEX_*` que o Codex põe no shell das ferramentas ou `CURSOR_AGENT`). Os hooks negam ao agente:
+
+- rodar esses comandos, inclusive por um interpretador ou wrapper (`python -c`, `node -e`, `perl -e`, `sh -c`, `xargs`, heredoc), num pseudo-terminal (`pty.spawn`, `script`, `expect`, `unbuffer`, `tmux`, `socat ... pty`) ou com as variáveis de sessão de agente removidas (`env -u`, `env -i`, `unset`);
+- escrever no estado do Okeanos, em `.git/okeanos/` ou no reserva em `<TMPDIR>/okeanos/`;
+- remover ou contornar os git hooks (`okeanos githooks --uninstall`, escrita em `.git/hooks`, troca de `core.hooksPath`) e os hooks do projeto com entradas do Okeanos (`.codex/hooks.json`, `.cursor/hooks.json`, `.cursor/rules/okeanos.mdc`, `.github/hooks/`), além de `okeanos install --uninstall`.
+
+Segredos, force push, `--no-verify`, `rm -r` fora do repositório e pacote inexistente nunca são aprováveis.
+
+Quão forte é essa barreira depende do agente. No Claude Code e no Copilot CLI (fora da nuvem e sem `COPILOT_ALLOW_ALL`), a aprovação é a confirmação do próprio programa do agente: uma barreira real, fora do alcance do modelo. No Codex e no Cursor, quem aprova é o `okeanos aprovar`, e as checagens acima barram atalhos e reward hacking acidental. Um agente que roda como o mesmo usuário do sistema operacional poderia, em princípio, escrever um script novo para contorná-las. Nesse caso, o hook de fim de turno, os git hooks (`okeanos githooks`) e o CI continuam como barreiras seguintes.
 
 ## Hooks
 
