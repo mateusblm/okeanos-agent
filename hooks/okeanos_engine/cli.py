@@ -123,9 +123,13 @@ def main(argv=None):
         data = json.load(sys.stdin)
     except Exception:  # noqa: BLE001
         data = None
-    if os.environ.get("OKEANOS_HOOK_DEBUG"):
+    debug = os.environ.get("OKEANOS_HOOK_DEBUG")
+    if debug:
+        # OKEANOS_HOOK_DEBUG=1 logs to ~/.okeanos-hook-debug.jsonl; a path logs there instead
+        # (useful when the agent's sandbox makes HOME read-only).
+        target = debug if os.sep in debug else os.path.expanduser("~/.okeanos-hook-debug.jsonl")
         try:
-            with open(os.path.expanduser("~/.okeanos-hook-debug.jsonl"), "a") as f:
+            with open(target, "a") as f:
                 f.write(json.dumps({"agent": agent, "cmd": hook, "data": data}) + "\n")
         except Exception:  # noqa: BLE001
             pass
