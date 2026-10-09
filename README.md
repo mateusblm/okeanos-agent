@@ -161,6 +161,8 @@ Os comandos de cada projeto ficam em `docs/agents/checks.json`. O `onboard` cria
 
 Cada comando aceita `timeout` em segundos.
 
+Em projetos com algo para rodar (servidor, CLI, UI, worker), o `onboard` também propõe `docs/agents/verificar.md`: como subir, checar, exercitar o caminho principal, que evidência guardar e como limpar. O `implement` segue esse roteiro para produzir a evidência de execução do G2.
+
 ### Linguagens
 
 O processo não depende de linguagem. Os hooks reconhecem testes, `skip` e supressões de lint em JS/TS, Python, Go, Java, Kotlin, Scala, C#, Swift, Ruby, PHP, Elixir, Dart e Rust. A checagem de pacotes cobre npm, PyPI, crates.io, RubyGems, Packagist, NuGet e módulos Go. Testes inline em código-fonte (módulos `#[cfg(test)]` do Rust) não são reconhecidos como arquivos de teste.
@@ -172,7 +174,7 @@ O agente chama a maioria das skills sozinho, conforme a rota. As marcadas como *
 ### Fluxo
 
 - **[setup-okeanos](skills/engineering/setup-okeanos/SKILL.md)**: configura o repo: issue tracker, labels de triagem, layout dos docs de domínio e, no GitHub, um workflow de CI.
-- **[onboard](skills/engineering/onboard/SKILL.md)**: lê um projeto sem contexto e escreve um arquivo de contexto curto e o `docs/agents/checks.json`.
+- **[onboard](skills/engineering/onboard/SKILL.md)**: lê um projeto sem contexto e escreve um arquivo de contexto curto, o `docs/agents/checks.json` e, se há app para rodar, o `docs/agents/verificar.md`.
 - **[grill-with-docs](skills/engineering/grill-with-docs/SKILL.md)**: entrevista para afiar um plano, criando ADRs e glossário no caminho.
 - **[to-spec](skills/engineering/to-spec/SKILL.md)**: transforma a conversa numa spec e publica no tracker.
 - **[to-tickets](skills/engineering/to-tickets/SKILL.md)**: quebra um plano ou spec em tickets tracer-bullet com dependências explícitas.

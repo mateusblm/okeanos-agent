@@ -69,7 +69,7 @@ Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explí
 
   Item ❌ se resolve antes do G1, não depois. Depois da pré-checagem: o que será construído, as seams de teste e os tickets ou passos. Termine com a pergunta de aprovação.
 - **G2 · Antes de publicar.** Antes de `git push`, abrir ou atualizar PR, merge na branch padrão, ou deploy. Mostre: tamanho do diff (linhas alteradas), resultado do `code-review` por severidade (só achados **blocking** seguram o G2), estado dos testes e typecheck, e o link do doc gerado pelo `as-built`, se o usuário pediu os docs. Junto, o **checklist de estabilidade** (curto, só o que se aplica):
-  - **Evidência de execução:** para mudança visível ao usuário (UI, API, CLI), a saída de ter rodado a aplicação: comando e resposta, health check, ou screenshot antes/depois para UI.
+  - **Evidência de execução:** para mudança visível ao usuário (UI, API, CLI), a saída de ter rodado a aplicação: comando e resposta, health check, ou screenshot antes/depois para UI. Quando o projeto tem `docs/agents/verificar.md`, a evidência vem de seguir esse roteiro (subir, checar, exercitar o caminho mudado, limpar).
   - **Changelog:** entrada na seção `Unreleased` do `CHANGELOG.md`, se o repo tem um.
   - **Rollback (Feature e acima):** 3 linhas: como desfazer (revert, flag), se dados mudam de forma irreversível e em qual fase de expand/migrate/contract está a migração, e qual sinal indica que é hora de reverter.
   - **Feature flag nova:** ticket de remoção criado, com data.
