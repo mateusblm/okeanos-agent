@@ -1104,3 +1104,185 @@ def test_ruler_approval_does_not_cover_tests(ruled):
     approve(ruled, RULER)
     d, _ = decision(change_assertion(ruled)[1])
     assert d == "ask"
+
+
+# ---------------------------------------------------------------------------
+# stop: loosened quality configs, stubs and empty catches are told to the user once
+# ---------------------------------------------------------------------------
+
+def commit_files(root, files):
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "configs")
+
+
+def quality_message(out):
+    """The stop notice: a message to the user that never blocks the turn end."""
+    assert out is not None, "expected a stop notice"
+    assert set(out) == {"systemMessage"}, out
+    message = out["systemMessage"]
+    assert message.startswith("[Okeanos] ")
+    return message
+
+
+def warns_once(root, *expected):
+    message = quality_message(stop(root)[1])
+    for text in expected:
+        assert text in message, message
+    assert stop(root) == (0, None)
+    return message
+
+
+LOOSENED_CONFIGS = [
+    ("tsconfig.json", '{\n  "compilerOptions": {\n    "strict": true,\n    "target": "es2022"\n  }\n}\n',
+     '{\n  "compilerOptions": {\n    "strict": false,\n    "target": "es2022"\n  }\n}\n', "`strict` desligado"),
+    ("tsconfig.base.json", '{\n  "compilerOptions": {\n    "noImplicitAny": true,\n    "target": "es2022"\n  }\n}\n',
+     '{\n  "compilerOptions": {\n    "target": "es2022"\n  }\n}\n', "`noImplicitAny: true` removido"),
+    (".eslintrc.json", '{\n  "rules": {\n    "no-console": "error"\n  }\n}\n',
+     '{\n  "rules": {\n    "no-console": "off"\n  }\n}\n', "regra `no-console` desligada"),
+    ("eslint.config.js", "export default [{\n  rules: {\n    'no-unused-vars': 2,\n  },\n}];\n",
+     "export default [{\n  rules: {\n    'no-unused-vars': 0,\n  },\n}];\n", "regra `no-unused-vars` desligada"),
+    ("package.json", '{\n  "scripts": {\n    "lint": "eslint . --max-warnings 0"\n  }\n}\n',
+     '{\n  "scripts": {\n    "lint": "eslint . --max-warnings 25"\n  }\n}\n', "`--max-warnings` subiu de 0 para 25"),
+    ("pyproject.toml", "[tool.mypy]\nstrict = true\n", "[tool.mypy]\nstrict = false\n", "`strict` desligado"),
+    ("mypy.ini", "[mypy]\ndisallow_untyped_defs = True\n", "[mypy]\ndisallow_untyped_defs = False\n",
+     "`disallow_untyped_defs` desligado"),
+    ("setup.cfg", "[flake8]\nextend-ignore =\n    E203\n", "[flake8]\nextend-ignore =\n    E203\n    E501\n",
+     "lista de ignore cresce: E501"),
+    ("pyproject.toml", '[tool.ruff.lint]\nignore = ["E501"]\n', '[tool.ruff.lint]\nignore = ["E501", "F401"]\n',
+     "lista de ignore cresce: F401"),
+    ("pyproject.toml", "[tool.coverage.report]\nfail_under = 90\n", "[tool.coverage.report]\nfail_under = 75\n",
+     "`fail_under` baixou de 90 para 75"),
+    ("Makefile", "test:\n\tpytest --cov=src --cov-fail-under=85\n", "test:\n\tpytest --cov=src --cov-fail-under=50\n",
+     "`fail_under` baixou de 85 para 50"),
+    ("jest.config.js", "module.exports = {\n  coverageThreshold: {\n    global: {\n      lines: 80,\n    },\n  },\n};\n",
+     "module.exports = {\n  coverageThreshold: {\n    global: {\n      lines: 60,\n    },\n  },\n};\n",
+     "cobertura `lines` baixou de 80 para 60"),
+]
+
+
+@pytest.mark.parametrize("rel,before,after,expected", LOOSENED_CONFIGS,
+                         ids=[f"{c[0]}:{c[3]}" for c in LOOSENED_CONFIGS])
+def test_loosened_quality_config_warns_once_without_blocking(repo, rel, before, after, expected):
+    commit_files(repo, {rel: before})
+    session_start(repo)
+    (repo / rel).write_text(after)
+    warns_once(repo, rel, expected)
+    assert "stop:quality" in [e["kind"] for e in metrics(repo)]
+
+
+TIGHTENED_CONFIGS = [
+    ("tsconfig.json", '{\n  "compilerOptions": {\n    "strict": false\n  }\n}\n',
+     '{\n  "compilerOptions": {\n    "strict": true\n  }\n}\n'),
+    (".eslintrc.json", '{\n  "rules": {\n    "no-console": "off"\n  }\n}\n',
+     '{\n  "rules": {\n    "no-console": "error"\n  }\n}\n'),
+    ("package.json", '{\n  "scripts": {\n    "lint": "eslint . --max-warnings 10"\n  }\n}\n',
+     '{\n  "scripts": {\n    "lint": "eslint src --max-warnings 0"\n  }\n}\n'),
+    ("setup.cfg", "[flake8]\nextend-ignore =\n    E203\n    E501\n", "[flake8]\nextend-ignore =\n    E203\n"),
+    ("pyproject.toml", "[tool.coverage.report]\nfail_under = 75\n", "[tool.coverage.report]\nfail_under = 90\n"),
+    ("pyproject.toml", '[tool.ruff.lint]\nselect = ["E"]\n', '[tool.ruff.lint]\nselect = ["E", "F", "B"]\n'),
+    ("src/settings.json", '{\n  "strict": true\n}\n', '{\n  "strict": false\n}\n'),  # not a quality config
+]
+
+
+@pytest.mark.parametrize("rel,before,after", TIGHTENED_CONFIGS, ids=[c[0] for c in TIGHTENED_CONFIGS])
+def test_tightened_or_unrelated_config_is_silent(repo, rel, before, after):
+    commit_files(repo, {rel: before})
+    session_start(repo)
+    (repo / rel).write_text(after)
+    assert stop(repo) == (0, None)
+
+
+def test_loosened_checks_json_during_the_session_warns_once(ruled):
+    session_start(ruled)
+    # written behind the editor's back (an interpreter, git checkout of an old version)
+    (ruled / RULER).write_text(json.dumps(ruler(maxChangedLines=5000), indent=2))
+    warns_once(ruled, RULER, "maxChangedLines sobe de 400 para 5000")
+
+
+def test_deleted_checks_json_warns(ruled):
+    session_start(ruled)
+    (ruled / RULER).unlink()
+    warns_once(ruled, RULER, "apagado")
+
+
+def test_tightened_checks_json_is_silent(ruled):
+    session_start(ruled)
+    (ruled / RULER).write_text(json.dumps(ruler(maxChangedLines=200), indent=2))
+    assert stop(ruled) == (0, None)
+
+
+STUBS = [
+    ("src/a.py", "def load(path):\n    raise NotImplementedError\n", "stub"),
+    ("src/a.py", "def load(path):\n    # TODO: implement\n    return None\n", "stub"),
+    ("src/a.ts", "export function load(): string {\n  throw new Error('Not implemented');\n}\n", "stub"),
+    ("src/lib.rs", "pub fn load() -> u8 {\n    todo!()\n}\n", "stub"),
+    ("src/lib.rs", "pub fn load() -> u8 {\n    unimplemented!(\"later\")\n}\n", "stub"),
+    ("src/a.go", "package a\n\nfunc Load() int {\n\tpanic(\"not implemented\")\n}\n", "stub"),
+    ("src/a.py", "def load(path):\n    pass\n", "`pass` como corpo único de `load`"),
+    ("src/a.py", "def load(path): pass\n", "`pass` como corpo único de `load`"),
+    ("src/a.ts", "export function load() {\n  try { run(); } catch (e) {}\n}\n", "catch vazio"),
+    ("src/a.ts", "export function load() {\n  try {\n    run();\n  } catch {\n  }\n}\n", "catch vazio"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except ValueError:\n        pass\n    return 1\n", "except vazio"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except: pass\n", "except vazio"),
+]
+
+
+@pytest.mark.parametrize("rel,code,expected", STUBS, ids=[f"{s[0]}:{i}" for i, s in enumerate(STUBS)])
+def test_new_stub_or_empty_catch_warns_once_without_blocking(repo, rel, code, expected):
+    session_start(repo)
+    (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+    (repo / rel).write_text(code)
+    warns_once(repo, rel, expected)
+
+
+def test_stub_added_to_a_tracked_file_warns(repo):
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "\n\ndef sub(a, b):\n    raise NotImplementedError\n")
+    warns_once(repo, "src/calc.py", "NotImplementedError")
+
+
+NOT_STUBS = [
+    ("tests/test_load.py", "def test_load():\n    pass\n"),  # tests may stub
+    ("src/load.test.ts", "it('loads', () => {\n  try { run(); } catch (e) {}\n});\n"),
+    ("src/a.py", "from abc import abstractmethod\n\n\nclass A:\n    @abstractmethod\n    def load(self):\n        pass\n"),
+    ("src/a.py", "def load(path):\n    pass\n    return path\n"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except ValueError:\n        log()\n"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except ValueError:\n        # optional dependency\n        pass\n"),
+    ("src/a.ts", "export function load() {\n  try { run(); } catch (e) { log(e); }\n}\n"),
+    ("src/a.ts", "export function load() {\n  try {\n    run();\n  } catch {\n    // best effort\n  }\n}\n"),
+    ("src/a.py", "def load(path):\n    # TODO: implementation notes live in docs\n    return path\n"),
+    ("README.md", "Call `raise NotImplementedError` in abstract methods.\n"),
+]
+
+
+@pytest.mark.parametrize("rel,code", NOT_STUBS, ids=[s[0] + ":" + str(i) for i, s in enumerate(NOT_STUBS)])
+def test_code_without_new_stubs_is_silent(repo, rel, code):
+    session_start(repo)
+    (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+    (repo / rel).write_text(code)
+    assert stop(repo) == (0, None)
+
+
+def test_quality_notice_is_not_repeated_when_the_diff_changes_elsewhere(repo):
+    session_start(repo)
+    (repo / "src" / "a.py").write_text("def load(path):\n    raise NotImplementedError\n")
+    quality_message(stop(repo)[1])
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "\n\ndef sub(a, b):\n    return a - b\n")
+    assert stop(repo) == (0, None)
+    (repo / "src" / "b.py").write_text("def save(path):\n    raise NotImplementedError\n")
+    message = quality_message(stop(repo)[1])
+    assert "src/b.py" in message and "src/a.py" not in message
+
+
+def test_quality_notice_waits_for_a_failing_done_and_never_blocks_on_its_own(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "test ! -f FAIL"}]})
+    session_start(repo)
+    (repo / "FAIL").write_text("x\n")
+    (repo / "src" / "a.py").write_text("def load(path):\n    raise NotImplementedError\n")
+    code, out = stop(repo)
+    assert out["decision"] == "block" and "NotImplementedError" not in out["reason"]
+    (repo / "FAIL").unlink()
+    warns_once(repo, "src/a.py")

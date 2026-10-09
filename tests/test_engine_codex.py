@@ -399,6 +399,73 @@ def test_passing_done_is_silent(repo):
     assert stop(repo) == (0, None)
 
 
+def commit_files(root, files):
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "configs")
+
+
+def notice(out):
+    """A Codex stop notice: a systemMessage, never a block."""
+    assert out is not None and set(out) == {"systemMessage"}, out
+    assert out["systemMessage"].startswith("[Okeanos] ")
+    return out["systemMessage"]
+
+
+def test_loosened_tsconfig_warns_codex_once_without_blocking(repo):
+    commit_files(repo, {"tsconfig.json": '{\n  "compilerOptions": {\n    "strict": true\n  }\n}\n'})
+    session_start(repo)
+    (repo / "tsconfig.json").write_text('{\n  "compilerOptions": {\n    "strict": false\n  }\n}\n')
+    message = notice(stop(repo)[1])
+    assert "tsconfig.json" in message and "`strict` desligado" in message
+    assert stop(repo) == (0, None)
+    assert {e["agent"] for e in metrics(repo) if e["kind"] == "stop:quality"} == {"codex"}
+
+
+def test_lowered_coverage_warns_codex_once(repo):
+    commit_files(repo, {"pyproject.toml": "[tool.coverage.report]\nfail_under = 90\n"})
+    session_start(repo)
+    (repo / "pyproject.toml").write_text("[tool.coverage.report]\nfail_under = 70\n")
+    assert "`fail_under` baixou de 90 para 70" in notice(stop(repo)[1])
+    assert stop(repo) == (0, None)
+
+
+def test_loosened_checks_json_warns_codex_once(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "true"}], "maxChangedLines": 300})
+    session_start(repo)
+    (repo / "docs" / "agents" / "checks.json").write_text(json.dumps({"onDone": [], "maxChangedLines": 300}))
+    message = notice(stop(repo)[1])
+    assert "docs/agents/checks.json" in message and "`true` removido" in message
+    assert stop(repo) == (0, None)
+
+
+@pytest.mark.parametrize("rel,code,expected", [
+    ("src/a.py", "def load(path):\n    raise NotImplementedError\n", "stub"),
+    ("src/a.ts", "export function load() {\n  try { run(); } catch (e) {}\n}\n", "catch vazio"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except Exception:\n        pass\n", "except vazio"),
+], ids=["raise", "catch", "except"])
+def test_new_stub_or_empty_catch_warns_codex_once(repo, rel, code, expected):
+    session_start(repo)
+    (repo / rel).write_text(code)
+    message = notice(stop(repo)[1])
+    assert rel in message and expected in message
+    assert stop(repo) == (0, None)
+
+
+def test_stub_in_a_test_file_is_silent_in_codex(repo):
+    session_start(repo)
+    (repo / "tests" / "test_load.py").write_text("def test_load():\n    raise NotImplementedError\n")
+    assert stop(repo) == (0, None)
+
+
+def test_clean_change_is_silent_in_codex(repo):
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "\n\ndef sub(a, b):\n    return a - b\n")
+    assert stop(repo) == (0, None)
+
+
 def test_first_prompt_gets_the_route_reminder(repo):
     payload = common(repo, "UserPromptSubmit") | {"prompt": "add a sub function"}
     code, out = hook("prompt", payload)
