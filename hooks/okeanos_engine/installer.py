@@ -24,6 +24,7 @@ rules, so `--project` writes the process as a project rule (.cursor/rules/okeano
 in the current repository.
 """
 
+import collections
 import json
 import os
 import re
@@ -858,19 +859,23 @@ def found(agent, home):
     return cursor_found(home) if agent == "cursor" else shutil.which(agent)
 
 
-def run_project(names, root, home, uninstall, dry_run, out):
+Outcome = collections.namedtuple("Outcome", "code agents")
+Outcome.__doc__ = """The exit code, and the agents whose plan was applied without error (in a dry run: planned)."""
+
+
+def run_project(names, root, home, uninstall, dry_run, out, before=None):
     """`okeanos install --agent cursor|codex --project`: the Cursor process rule, or the Codex hooks, in the
     current repository."""
     if names not in (["cursor"], ["codex"]):
         out("okeanos install: --project vale para um agente só, cursor ou codex: "
             "okeanos install --agent cursor --project, ou okeanos install --agent codex --project")
-        return 2
+        return Outcome(2, [])
     agent = names[0]
     from .plumbing import repo_root
     repo = repo_root(os.getcwd())
     if not repo:
         out("okeanos install --project: aqui não é um repositório git; rode na raiz do projeto.")
-        return 2
+        return Outcome(2, [])
     prefix = "(simulação) " if dry_run else ""
     out(f"{prefix}Okeanos {'desinstalação' if uninstall else 'instalação'} no projeto {repo}")
     try:
@@ -878,20 +883,25 @@ def run_project(names, root, home, uninstall, dry_run, out):
                           else plan_codex_project(root, repo, home, uninstall))
     except Abort as e:
         out(f"{agent} (projeto): ERRO, nada instalado: {e}")
-        return 1
-    return 0 if report(f"{agent} (projeto)", actions, notes, dry_run, prefix, out) else 1
+        return Outcome(1, [])
+    if before:
+        before(agent)
+    ok = report(f"{agent} (projeto)", actions, notes, dry_run, prefix, out)
+    return Outcome(0, [agent]) if ok else Outcome(1, [])
 
 
-def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False, codex_hooks=None):
+def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False, codex_hooks=None, before=None):
+    """Install or uninstall. before(agent), if given, is called after the agent's plan is made and before it is
+    applied. Returns an Outcome."""
     root, home = plugin_root(), home_dir()
     names, bad = requested_agents(agents_arg)
     if bad:
         later = [n for n in bad if n in LATER]
         out("okeanos install: " + ", ".join(f"`{n}` ainda não é suportado" if n in later else f"agente desconhecido `{n}`"
                                             for n in bad) + f". Suportados: {', '.join(SUPPORTED)}.")
-        return 2
+        return Outcome(2, [])
     if project:
-        return run_project(names, root, home, uninstall, dry_run, out)
+        return run_project(names, root, home, uninstall, dry_run, out, before)
     prefix = "(simulação) " if dry_run else ""
     out(f"{prefix}Okeanos {'desinstalação' if uninstall else 'instalação'} a partir de {root}")
     if not names:
@@ -902,12 +912,12 @@ def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False, co
                 out(f"{a}: não encontrado no PATH")
         if not names:
             out("Nenhum agente suportado encontrado no PATH (" + ", ".join(SUPPORTED) + "). Nada foi alterado.")
-            return 0
+            return Outcome(0, [])
         with_cli = True
     else:
         with_cli = not uninstall
 
-    failed, done = False, False
+    failed, planned, done = False, False, []
     for agent in names:
         try:
             extra = {"hooks_mode": codex_hooks} if agent == "codex" else {}
@@ -916,12 +926,17 @@ def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False, co
             out(f"{agent}: ERRO, nada instalado: {e}")
             failed = True
             continue
-        failed |= not report(agent, actions, notes, dry_run, prefix, out)
-        done = True
-    if with_cli and (done or uninstall):
+        planned = True
+        if before:
+            before(agent)
+        if report(agent, actions, notes, dry_run, prefix, out):
+            done.append(agent)
+        else:
+            failed = True
+    if with_cli and (planned or uninstall):
         actions, notes = plan_cli(root, home, uninstall)
         failed |= not report("cli", actions, notes, dry_run, prefix, out)
-    return 1 if failed else 0
+    return Outcome(1 if failed else 0, done)
 
 
 def summary(actions):

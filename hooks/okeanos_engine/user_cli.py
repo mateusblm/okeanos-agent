@@ -175,32 +175,39 @@ def codex_scope(project):
 
 
 def cmd_install(args):
-    names, _ = installer.requested_agents(args.agent)
     home, root = installer.home_dir(), installer.plugin_root()
-    with_codex = not args.dry_run and (names == ["codex"] if args.project else (
-        "codex" in names or (not names and (args.uninstall or shutil.which("codex")))))
-    scope = codex_scope(args.project) if with_codex else None
+    scope = None if args.dry_run else codex_scope(args.project)
     keys = None
-    if scope and args.uninstall and codex_trust.installed(scope, home):
+
+    def before(agent):  # the trust keys must be read while the hooks are still there
+        nonlocal keys
+        if agent != "codex" or not args.uninstall or not scope or not codex_trust.installed(scope, home):
+            return
         try:
             keys = codex_trust.okeanos_keys(scope, root, home)
-        except codex_trust.TrustError as e:
+        except Exception as e:  # noqa: BLE001 - a Codex failure never breaks the uninstall
             print(f"codex: aviso, não consegui ler os hooks pelo Codex ({e}); as entradas de confiança do Okeanos "
                   "em hooks.state ficam no config.toml do Codex (inofensivas sem os hooks; tire-as à mão se quiser).")
-    code = installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run, project=args.project,
-                         codex_hooks=args.codex_hooks)
-    if scope and args.uninstall and keys:
-        try:
-            removed = codex_trust.forget(scope, keys, root, home)
-            if removed:
-                print(f"codex: {removed} entrada(s) de confiança do Okeanos removida(s) de hooks.state.")
-        except codex_trust.TrustError as e:
-            print(f"codex: aviso, as entradas de confiança do Okeanos em hooks.state ficaram ({e}).")
-    if scope and args.uninstall and scope.project:
-        print("codex: se esta pasta está marcada como confiável no Codex, ela continua (pode ser anterior ao Okeanos).")
-    elif scope and not args.uninstall and codex_trust.installed(scope, home):
+
+    outcome = installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run, project=args.project,
+                            codex_hooks=args.codex_hooks, before=before)
+    codex_done = scope is not None and "codex" in outcome.agents
+    if codex_done and args.uninstall:
+        if keys and outcome.code == 0:  # only once the Okeanos hooks are really gone
+            try:
+                removed = codex_trust.forget(scope, keys, root, home)
+                if removed:
+                    print(f"codex: {removed} entrada(s) de confiança do Okeanos removida(s) de hooks.state.")
+            except Exception as e:  # noqa: BLE001
+                print(f"codex: aviso, as entradas de confiança do Okeanos em hooks.state ficaram ({e}).")
+        elif keys:
+            print("codex: a desinstalação não terminou sem erro; as entradas de confiança do Okeanos em hooks.state "
+                  "ficaram.")
+        if scope.project:
+            print("codex: se esta pasta está marcada como confiável no Codex, ela continua (pode ser anterior ao Okeanos).")
+    elif codex_done and codex_trust.installed(scope, home):
         codex_trust.offer(scope, root, home, consent_refusal(), ask=True)
-    return code
+    return outcome.code
 
 
 def cmd_codex_confiar(args):
@@ -305,7 +312,9 @@ def parser():
                                    "(codex app-server), só para os hooks do Okeanos que precisam de revisão. Útil "
                                    "depois de atualizar o Okeanos. Sem terminal ou dentro de um agente, recusa.")
     c.add_argument("--project", action="store_true", help="os hooks do projeto atual (.codex/hooks.json)")
-    c.add_argument("--sim", action="store_true", help="não pergunta (ainda exige terminal interativo)")
+    c.add_argument("--sim", action="store_true",
+                   help="responde sim à pergunta dos hooks; com --project, a de marcar a pasta como confiável "
+                        "no Codex continua sendo feita (ainda exige terminal interativo)")
     c.set_defaults(func=cmd_codex_confiar)
     sub.add_parser("doctor", help="mostra onde o Okeanos está e o que encontra aqui").set_defaults(func=cmd_doctor)
     return p

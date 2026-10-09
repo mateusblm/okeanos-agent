@@ -27,6 +27,10 @@ class TrustError(Exception):
     """Codex could not list or trust the hooks; the message carries Codex's reason."""
 
 
+def unexpected(method, what):
+    return TrustError(f"resposta inesperada do Codex a {method}: {what}")
+
+
 # ---------------------------------------------------------------------------
 # where: the hooks files Okeanos writes, and the cwd Codex resolves them from
 # ---------------------------------------------------------------------------
@@ -168,15 +172,23 @@ class AppServer:
                     err = msg["error"]
                     reason = err.get("message") if isinstance(err, dict) else str(err)
                     raise TrustError(f"{method} recusado pelo Codex: {reason}")
-                return msg.get("result") or {}
+                result = msg.get("result")
+                if result is None:
+                    return {}
+                if not isinstance(result, dict):
+                    raise unexpected(method, "o resultado não é um objeto")
+                return result
             if "id" in msg and "method" in msg:  # a request from the server: we don't serve any
                 self.send({"jsonrpc": "2.0", "id": msg["id"], "error": {"code": -32601, "message": "not supported"}})
 
 
 def list_ours(server, scope, commands):
     result = server.request("hooks/list", {"cwds": [scope.cwd]})
-    hooks = [h for entry in result.get("data", []) if isinstance(entry, dict)
-             for h in entry.get("hooks", []) if isinstance(h, dict)]
+    data = result.get("data", [])
+    if not isinstance(data, list) or not all(isinstance(e, dict) and isinstance(e.get("hooks", []), list)
+                                             for e in data):
+        raise unexpected("hooks/list", "`data` não é uma lista de {cwd, hooks: [...]}")
+    hooks = [h for entry in data for h in entry.get("hooks", []) if isinstance(h, dict)]
     ours = {}
     for h in hooks:  # one entry per key: the same file can show up under more than one layer
         if is_ours(h, scope, commands):
@@ -246,13 +258,25 @@ def folder_edit(key):
     return {"keyPath": f'projects."{escaped}".trust_level', "value": "trusted", "mergeStrategy": "replace"}
 
 
+def read_config(server, scope):
+    """config/read with layers: (effective config, user layers, base layer first). Shapes checked."""
+    result = server.request("config/read", {"includeLayers": True, "cwd": scope.cwd})
+    config, layers = result.get("config") or {}, result.get("layers") or []
+    if not isinstance(config, dict) or not isinstance(layers, list):
+        raise unexpected("config/read", "`config` não é um objeto ou `layers` não é uma lista")
+    users = [l for l in layers if isinstance(l, dict) and isinstance(l.get("name"), dict)
+             and l["name"].get("type") == "user"]
+    if not all(isinstance(l.get("config") or {}, dict) for l in users):
+        raise unexpected("config/read", "a camada do usuário não traz um objeto em `config`")
+    users.sort(key=lambda l: l["name"].get("profile") is not None)
+    return config, users
+
+
 def folder_trusted(server, scope, key):
     """The effective config or the user layer has projects.<key>.trust_level = "trusted"."""
-    result = server.request("config/read", {"includeLayers": True, "cwd": scope.cwd})
-    configs = [result.get("config")] + [l.get("config") for l in result.get("layers") or [] if isinstance(l, dict)
-                                        and isinstance(l.get("name"), dict) and l["name"].get("type") == "user"]
-    for config in configs:
-        projects = config.get("projects") if isinstance(config, dict) else None
+    config, users = read_config(server, scope)
+    for config in [config] + [l.get("config") or {} for l in users]:
+        projects = config.get("projects")
         entry = projects.get(key) if isinstance(projects, dict) else None
         if isinstance(entry, dict) and entry.get("trust_level") == "trusted":
             return True
@@ -291,7 +315,7 @@ def trust_folder(server, scope, commands, confirm, out):
     return ours
 
 
-def trust(scope, root, home, out, confirm=lambda question: True):
+def trust(scope, root, home, out, confirm):
     """Trust the Okeanos hooks that need review, then check with Codex. True when all of them are trusted,
     None when the human declined trusting the folder (--project in a folder Codex doesn't trust yet)."""
     commands = okeanos_commands(root)
@@ -305,6 +329,8 @@ def trust(scope, root, home, out, confirm=lambda question: True):
             if not ours:
                 raise TrustError(f"o Codex não lista hooks do Okeanos em {', '.join(scope.files)}")
             pending = [h for h in ours if h.get("trustStatus") in NEEDS_REVIEW]
+            if not all(isinstance(h.get("currentHash"), str) and h["currentHash"] for h in pending):
+                raise unexpected("hooks/list", "hook sem `currentHash`")
             if not pending:
                 out("codex: os hooks do Okeanos já estão confiados.")
                 return True
@@ -337,9 +363,7 @@ def offer(scope, root, home, refusal, ask, out=print, ask_fn=input):
         out(f"codex: hooks do Okeanos não confiados agora ({refusal}).")
         out(later_note(scope))
         return 1
-    def confirm(question):  # --sim (ask=False) answers yes to every question
-        if not ask:
-            return True
+    def confirm(question):
         try:
             answer = ask_fn(question)
         except EOFError:
@@ -347,11 +371,16 @@ def offer(scope, root, home, refusal, ask, out=print, ask_fn=input):
         return answer.strip().lower() in ("s", "sim", "y", "yes")
 
     describe_hooks(root, scope, out)
-    if not confirm("Autorizar esses hooks no Codex agora? [s/N] "):
+    # --sim (ask=False) answers yes to this question only: trusting the folder is always asked
+    if ask and not confirm("Autorizar esses hooks no Codex agora? [s/N] "):
         out("codex: nada foi confiado.")
         out(later_note(scope))
         return 0
-    ok = trust(scope, root, home, out, confirm)
+    try:
+        ok = trust(scope, root, home, out, confirm)
+    except Exception as e:  # noqa: BLE001 - never break the install: fall back to /hooks
+        out(fallback_note(scope, f"erro inesperado ({type(e).__name__}: {e})"))
+        ok = False
     if ok is None:
         return 0
     note = orca_note(scope, home)
@@ -375,16 +404,15 @@ def forget(scope, keys, root, home):
     config/batchWrite rejects null, so the remaining map goes back whole with mergeStrategy replace,
     guarded by the user layer's version."""
     with AppServer(scope.cwd, home, root) as server:
-        result = server.request("config/read", {"includeLayers": True, "cwd": scope.cwd})
-        layers = [l for l in result.get("layers") or [] if isinstance(l, dict)
-                  and isinstance(l.get("name"), dict) and l["name"].get("type") == "user"]
-        layers.sort(key=lambda l: l["name"].get("profile") is not None)
+        _, layers = read_config(server, scope)
         if not layers:
             return 0
-        hooks = (layers[0].get("config") or {}).get("hooks")
+        hooks = (layers[0].get("config") or {}).get("hooks") or {}
         current = hooks.get("state") if isinstance(hooks, dict) else None
-        if not isinstance(current, dict):
+        if current is None:
             return 0
+        if not isinstance(current, dict):
+            raise unexpected("config/read", "`hooks.state` não é uma tabela")
         remaining = {k: v for k, v in current.items() if k not in keys}
         if len(remaining) == len(current):
             return 0
