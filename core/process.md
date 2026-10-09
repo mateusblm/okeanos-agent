@@ -43,6 +43,7 @@ Desvios que entram em qualquer rota quando surgem:
 - Pesquisa em fontes primárias: `research` em background.
 - Passos que só um humano consegue fazer (credenciais, dashboards, provisionamento): `wizard`.
 - Vocabulário confuso ou decisão difícil de reverter: `domain-modeling`; forma de módulo: `codebase-design`.
+- Desempenho (regressão, orçamento, lentidão): `performance`.
 - Lógica crítica (dinheiro, permissões, integridade de dados, parsing) em qualquer rota: `mutation-check` antes do `code-review`.
 - Decisão registrada em ADR: a seção Confirmation diz como ela é verificada; se a verificação não existe, vira ticket.
 - Mudança que toca autenticação/autorização, entrada externa, dados persistidos ou pessoais, segredos, chamadas a terceiros ou chamadas a LLM: `threat-model` durante o alinhamento (Feature: quando tocar; Feature grande e Épico: sempre). Cada mitigação vira critério "Se ..., então ..." e teste.
@@ -62,6 +63,7 @@ Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explí
   - nenhum `[PRECISA ESCLARECER]` aberto;
   - fora de escopo preenchido;
   - modelo de ameaças feito, se a mudança toca um gatilho de segurança;
+  - mudança de contrato público: formato de erro, compatibilidade aditiva, paginação e idempotência decididos (`codebase-design`, API.md); quebra de compatibilidade dita, com caminho aditivo ou de versão;
   - (Feature grande) cada ticket com ~200 a 400 linhas e cabendo num contexto novo, e as ondas de dependência listadas.
 
   Item ❌ se resolve antes do G1, não depois. Depois da pré-checagem: o que será construído, as seams de teste e os tickets ou passos. Termine com a pergunta de aprovação.
@@ -71,7 +73,7 @@ Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explí
   - **Rollback (Feature e acima):** 3 linhas: como desfazer (revert, flag), se dados mudam de forma irreversível e em qual fase de expand/migrate/contract está a migração, e qual sinal indica que é hora de reverter.
   - **Feature flag nova:** ticket de remoção criado, com data.
   - **Observabilidade (serviço):** falhas novas logadas ou contadas, chamadas externas com timeout.
-  - **UI:** controles com rótulo e usáveis por teclado, contraste ok; e o quanto o bundle cresceu, se o projeto mede.
+  - **UI:** o que a skill `frontend-ui` conferiu (estados, breakpoints, acessibilidade, console limpo), com screenshots; e o quanto o bundle cresceu, se o projeto mede (medido como na skill `performance`).
   - **Docs:** o que o `as-built` marcou como possível doc desatualizado; sem `as-built`, os docs existentes que a mudança deixou desatualizados.
   - **Força dos testes (Feature grande, Épico, lógica crítica):** resultado do `mutation-check` e, com lógica de domínio, do `property-tests`.
   - **Notei, não mexi:** o que o `implement` notou fora do escopo (bug, smell, teste faltando), um por linha, para o usuário decidir o que vira ticket. Só se a lista não está vazia.

@@ -163,6 +163,8 @@ Cada comando aceita `timeout` em segundos.
 
 Em projetos com algo para rodar (servidor, CLI, UI, worker), o `onboard` também propõe `docs/agents/verificar.md`: como subir, checar, exercitar o caminho principal, que evidência guardar e como limpar. O `implement` segue esse roteiro para produzir a evidência de execução do G2.
 
+A `retro` mantém `docs/agents/regras.md`: cada regra do projeto e o que a aplica (hook, check, lint, tipo, teste ou nada). Ela propõe o arquivo na primeira vez, para você aprovar, e trata como achado uma regra sem aplicação que voltou a ser violada.
+
 ### Linguagens
 
 O processo não depende de linguagem. Os hooks reconhecem testes, `skip` e supressões de lint em JS/TS, Python, Go, Java, Kotlin, Scala, C#, Swift, Ruby, PHP, Elixir, Dart e Rust. A checagem de pacotes cobre npm, PyPI, crates.io, RubyGems, Packagist, NuGet e módulos Go. Testes inline em código-fonte (módulos `#[cfg(test)]` do Rust) não são reconhecidos como arquivos de teste.
@@ -182,7 +184,8 @@ O agente chama a maioria das skills sozinho, conforme a rota. As marcadas como *
 - **[implement-spec](skills/engineering/implement-spec/SKILL.md)**: implementa o resultado de `to-spec` e `to-tickets`, com subagentes em paralelo.
 - **[afk](skills/engineering/afk/SKILL.md)**: implementa os tickets em sandboxes Docker paralelas enquanto você está fora.
 - **[tdd](skills/engineering/tdd/SKILL.md)**: desenvolvimento guiado por testes, red-green-refactor.
-- **[diagnosing-bugs](skills/engineering/diagnosing-bugs/SKILL.md)**: loop de diagnóstico para bugs difíceis e regressões de desempenho.
+- **[diagnosing-bugs](skills/engineering/diagnosing-bugs/SKILL.md)**: loop de diagnóstico para bugs difíceis. Lentidão vai para o `performance`.
+- **[performance](skills/engineering/performance/SKILL.md)**: medir, identificar, corrigir, verificar e proteger. Muda uma coisa por vez, reverte o ganho que não passa do ruído e nunca dá número sem medição.
 - **[mutation-check](skills/engineering/mutation-check/SKILL.md)**: teste de mutação restrito às linhas alteradas. Cada mutante sobrevivente vira um teste.
 - **[property-tests](skills/engineering/property-tests/SKILL.md)**: testes baseados em propriedades derivados dos invariantes da spec, escritos por um agente que vê só a spec e a interface pública.
 - **[threat-model](skills/engineering/threat-model/SKILL.md)**: modelo de ameaças em até 15 linhas, com STRIDE. Cada mitigação vira critério de aceitação testável.
@@ -199,6 +202,7 @@ O agente chama a maioria das skills sozinho, conforme a rota. As marcadas como *
 - **[research](skills/engineering/research/SKILL.md)**: pesquisa em fontes primárias, salva como Markdown no repo.
 - **[wizard](skills/engineering/wizard/SKILL.md)**: gera um wizard em bash para passos que só uma pessoa pode fazer (credenciais, dashboards, provisionamento).
 - **[domain-modeling](skills/engineering/domain-modeling/SKILL.md)**: constrói o modelo de domínio do projeto: `GLOSSARY.md` e ADRs.
+- **[frontend-ui](skills/engineering/frontend-ui/SKILL.md)**: constrói UI de produção com os tokens do projeto, todos os estados (loading, vazio, erro, sem permissão), acessibilidade e breakpoints, conferida no navegador com perfil isolado.
 - **[codebase-design](skills/engineering/codebase-design/SKILL.md)**: vocabulário para desenhar módulos profundos e decidir onde ficam as seams.
 - **[grilling](skills/productivity/grilling/SKILL.md)**: entrevista sobre um plano, decisão ou ideia. Base das outras skills de entrevista.
 - **[grill-me](skills/productivity/grill-me/SKILL.md)**: entrevista para afiar um plano, sem gerar docs.

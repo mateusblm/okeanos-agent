@@ -62,7 +62,7 @@ Only when the change touches authentication or authorization, external input, pe
 Only the lines that apply; omit the section when none does. Each one becomes an acceptance criterion or a G2 checklist item.
 
 - **Service or API**: which new failures are logged or counted, which external calls get a timeout, and the SLI that would show this feature broken in production (e.g. "share of `POST /calc` answered 2xx in under 300 ms").
-- **UI**: accessibility (every control has a label, works by keyboard, contrast passes WCAG AA) and the performance budget (bundle size growth, largest contentful paint) if the project has one.
+- **UI**: accessibility (every control has a label, works by keyboard, contrast passes WCAG AA) and the performance budget (bundle size growth, largest contentful paint) if the project has one, measured and guarded as in the `performance` skill.
 - **Data**: migration plan (expand → migrate → contract), and whether it's reversible.
 
 ## Implementation Decisions
