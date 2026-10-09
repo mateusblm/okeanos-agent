@@ -304,7 +304,11 @@ COMMAND_RUNNERS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "eval", "xargs", 
 STATE_READERS = {"cat", "less", "more", "head", "tail", "ls", "jq", "grep", "rg", "wc", "stat", "file", "diff",
                  "git", "echo", "printf"}  # their writes go through redirects, which are checked above
 STATE_MENTION = re.compile(r"(^|[^A-Za-z0-9_])\.git/(okeanos|hooks)(/|\b)|okeanos/approvals\.json")
-APPROVAL_TEXT = re.compile(r"okeanos[^\s;&|]*['\"]?\s+(\S+\s+)*?['\"]?(aprovar|revogar)\b")
+# "okeanos [up to 3 args] aprovar": the CLI and its subcommand close together, not a project path
+# that happens to contain "okeanos" and the word "aprovar" somewhere later in the line.
+APPROVAL_TEXT = re.compile(r"okeanos[^\s;&|]*['\"]?\s+(\S+\s+){0,3}?['\"]?(aprovar|revogar)\b")
+# Commands that only produce text a runner might read on stdin (echo '...' | sh).
+TEXT_PRODUCERS = {"echo", "printf", "cat", "yes"}
 
 
 def okeanos_program(tok):
@@ -374,9 +378,19 @@ def self_approval(event, ctx):
         mentions = STATE_MENTION.search(seg) or (state_dir and state_dir in seg)
         if mentions and plain and os.path.basename(plain[0]) not in STATE_READERS:
             return HUMAN_ONLY.format(what="estado em .git/okeanos")
-    runners = [strip_env_prefix(tokens(seg)) for seg in segments]
-    if any(r and os.path.basename(r[0]) in COMMAND_RUNNERS for r in runners) and APPROVAL_TEXT.search(command):
-        return HUMAN_ONLY.format(what="aprovação pelo agente")
+    # A runner (sh -c, script, timeout...) executing the approval as text: look only at the runner's
+    # own segment and at a text producer feeding it, never at unrelated parts of the line.
+    for i, seg in enumerate(segments):
+        plain = strip_env_prefix(tokens(seg))
+        if not plain or os.path.basename(plain[0]) not in COMMAND_RUNNERS:
+            continue
+        scope = [seg]
+        if i > 0:
+            prev = strip_env_prefix(tokens(segments[i - 1]))
+            if prev and os.path.basename(prev[0]) in TEXT_PRODUCERS:
+                scope.append(segments[i - 1])
+        if any(APPROVAL_TEXT.search(s) for s in scope):
+            return HUMAN_ONLY.format(what="aprovação pelo agente")
     return None
 
 
