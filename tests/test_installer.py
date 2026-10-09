@@ -448,11 +448,12 @@ def test_cursor_project_dry_run_writes_nothing(home, fakebin, project):
     assert "okeanos.mdc" in out and not (project / ".cursor").exists()
 
 
-@pytest.mark.parametrize("args", [["--project"], ["--agent", "codex", "--project"]])
-def test_project_is_only_for_cursor(home, fakebin, project, args):
+@pytest.mark.parametrize("args", [["--project"], ["--agent", "copilot", "--project"],
+                                  ["--agent", "codex,cursor", "--project"]])
+def test_project_is_only_for_cursor_or_codex(home, fakebin, project, args):
     code, out = cursor_install(home, fakebin, *args, cwd=project)
-    assert code != 0 and "cursor" in out
-    assert not (project / ".cursor").exists()
+    assert code != 0 and "cursor" in out and "codex" in out
+    assert not (project / ".cursor").exists() and not (project / ".codex").exists()
 
 
 def test_doctor_shows_cursor_status(home, fakebin, project):
@@ -651,7 +652,7 @@ def test_install_sh_clones_then_updates_and_passes_arguments(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# codex under Orca: hooks.json is rewritten by Orca, so the hooks go to config.toml
+# codex --codex-hooks toml: the hooks go to [hooks] tables in config.toml
 # ---------------------------------------------------------------------------
 
 import tomllib  # noqa: E402
@@ -675,11 +676,11 @@ def toml_okeanos_commands(config):
             for g in groups for h in g.get("hooks", []) if str(ROOT) in h.get("command", "")]
 
 
-def test_orca_managed_hooks_json_sends_the_hooks_to_config_toml(home, fakebin):
+def test_codex_hooks_toml_puts_the_hooks_in_config_toml(home, fakebin):
     add_agent(fakebin, "codex")
     codex = orca_codex(home)
     hooks_before = (codex / "hooks.json").read_text()
-    code, out = install(home, fakebin, "--agent", "codex")
+    code, out = install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")
     assert code == 0, out
     assert (codex / "hooks.json").read_text() == hooks_before  # Orca's file is left alone
     text = (codex / "config.toml").read_text()
@@ -695,10 +696,10 @@ def test_orca_managed_hooks_json_sends_the_hooks_to_config_toml(home, fakebin):
     assert config["hooks"]["PreToolUse"][0]["matcher"] == "Bash|apply_patch"
     assert config["hooks"]["Stop"][0]["hooks"][0]["timeout"] == 1800
     assert (codex / "config.toml.okeanos-bak").read_text() == USER_TOML
-    assert "Orca" in out and "/hooks" in out and "config.toml" in out
+    assert "/hooks" in out and "config.toml" in out
 
     first = snapshot(home)
-    code, out = install(home, fakebin, "--agent", "codex")
+    code, out = install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")
     assert code == 0, out
     assert snapshot(home) == first
 
@@ -715,7 +716,7 @@ def test_switching_to_toml_drops_stale_okeanos_entries_from_hooks_json(home, fak
     data = json.loads((codex / "hooks.json").read_text())
     data["hooks"]["PreToolUse"].insert(0, ORCA_HOOKS["hooks"]["PreToolUse"][0])
     (codex / "hooks.json").write_text(json.dumps(data))
-    code, out = install(home, fakebin, "--agent", "codex")
+    code, out = install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")
     assert code == 0, out
     left = json.loads((codex / "hooks.json").read_text())
     assert okeanos_commands(left) == []
@@ -726,7 +727,7 @@ def test_switching_to_toml_drops_stale_okeanos_entries_from_hooks_json(home, fak
 def test_codex_trust_state_written_inside_the_block_survives_reinstall(home, fakebin):
     add_agent(fakebin, "codex")
     codex = orca_codex(home)
-    install(home, fakebin, "--agent", "codex")
+    install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")
     text = (codex / "config.toml").read_text()
     trusted = '[hooks.state."/home/u/.codex/config.toml:pre_tool_use:0:0"]\ntrusted_hash = "sha256:def"\n'
     (codex / "config.toml").write_text(text.replace("# okeanos:end\n", trusted + "# okeanos:end\n"))
@@ -745,7 +746,7 @@ def test_conflicting_hooks_table_in_config_toml_aborts_untouched(home, fakebin, 
     add_agent(fakebin, "codex")
     orca_codex(home, toml=toml)
     before = snapshot(home)
-    code, out = install(home, fakebin, "--agent", "codex")
+    code, out = install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")
     assert code != 0
     assert "config.toml" in out and "[hooks]" in out
     assert {k: v for k, v in snapshot(home).items() if not k.startswith(".local")} == before
@@ -774,7 +775,7 @@ def test_codex_toml_dry_run_writes_nothing(home, fakebin):
     add_agent(fakebin, "codex")
     orca_codex(home)
     before = snapshot(home)
-    code, out = install(home, fakebin, "--agent", "codex", "--dry-run")
+    code, out = install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml", "--dry-run")
     assert code == 0, out
     assert snapshot(home) == before
     assert "config.toml" in out
@@ -783,7 +784,154 @@ def test_codex_toml_dry_run_writes_nothing(home, fakebin):
 def test_doctor_sees_codex_hooks_in_config_toml(home, fakebin):
     add_agent(fakebin, "codex")
     orca_codex(home)
-    install(home, fakebin, "--agent", "codex")
+    install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")
     code, out = install(home, fakebin, cli="doctor")
     line = next(l for l in out.splitlines() if l.strip().startswith("codex:") and "instalado" in l)
     assert "não instalado" not in line and "hooks" in line and "config.toml" in line
+
+
+# ---------------------------------------------------------------------------
+# codex --project: hooks in <repo>/.codex/hooks.json (Orca regenerates CODEX_HOME, so user hooks don't survive)
+# ---------------------------------------------------------------------------
+
+ORCA_NOTE = ("Codex gerenciado pelo Orca: hooks do Okeanos precisam ser instalados por projeto: "
+             "okeanos install --agent codex --project (em cada projeto)")
+PROJECT_USER_HOOKS = {"other": True, "hooks": {"PreToolUse": [
+    {"matcher": "Bash", "hooks": [{"type": "command", "command": "./scripts/guard.sh"}]}]}}
+
+
+def project_hooks(project):
+    return json.loads((project / ".codex" / "hooks.json").read_text())
+
+
+def orca_home(home, toml=USER_TOML):
+    codex = orca_codex(home, toml=toml)
+    (codex / ".orca-managed-home").write_text("")
+    return codex
+
+
+def test_codex_project_merges_hooks_into_the_repository(home, fakebin, project):
+    (project / ".codex").mkdir()
+    original = json.dumps(PROJECT_USER_HOOKS, indent=2) + "\n"
+    (project / ".codex" / "hooks.json").write_text(original)
+    code, out = cursor_install(home, fakebin, "--agent", "codex", "--project", cwd=project / "sub")
+    assert code == 0, out
+    data = project_hooks(project)
+    assert data["other"] is True and set(data["hooks"]) == CODEX_HOOKS
+    assert data["hooks"]["PreToolUse"][0] == PROJECT_USER_HOOKS["hooks"]["PreToolUse"][0]
+    commands = okeanos_commands(data)
+    for sub in ("session-start", "prompt", "pre-tool", "post-tool", "stop"):
+        assert any(c.endswith(f"--agent codex {sub}") and str(ROOT / "hooks" / "run") in c for c in commands), sub
+    assert (project / ".codex" / "hooks.json.okeanos-bak").read_text() == original
+    assert snapshot(home) == {}  # nothing at user level, not even the CLI link
+    assert "/hooks" in out and ".codex/hooks.json" in out and "commit" in out.lower()
+
+    first = snapshot(project)
+    assert cursor_install(home, fakebin, "--agent", "codex", "--project", cwd=project)[0] == 0
+    assert snapshot(project) == first
+
+    code, out = cursor_install(home, fakebin, "--agent", "codex", "--project", "--uninstall", cwd=project)
+    assert code == 0, out
+    assert project_hooks(project) == PROJECT_USER_HOOKS
+
+
+def test_codex_project_uninstall_removes_a_file_that_only_had_okeanos(home, fakebin, project):
+    assert cursor_install(home, fakebin, "--agent", "codex", "--project", cwd=project)[0] == 0
+    assert okeanos_commands(project_hooks(project))
+    code, out = cursor_install(home, fakebin, "--agent", "codex", "--project", "--uninstall", cwd=project)
+    assert code == 0, out
+    assert not (project / ".codex" / "hooks.json").exists()
+
+
+def test_codex_project_dry_run_writes_nothing(home, fakebin, project):
+    code, out = cursor_install(home, fakebin, "--agent", "codex", "--project", "--dry-run", cwd=project)
+    assert code == 0, out
+    assert ".codex/hooks.json" in out and not (project / ".codex").exists()
+
+
+def test_codex_project_outside_a_repository_is_refused(home, fakebin, tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    code, out = cursor_install(home, fakebin, "--agent", "codex", "--project", cwd=outside)
+    assert code != 0 and "git" in out
+    assert list(outside.iterdir()) == []
+
+
+def test_codex_project_invalid_hooks_file_aborts_untouched(home, fakebin, project):
+    (project / ".codex").mkdir()
+    (project / ".codex" / "hooks.json").write_text("{not json")
+    code, out = cursor_install(home, fakebin, "--agent", "codex", "--project", cwd=project)
+    assert code != 0 and "hooks.json" in out
+    assert (project / ".codex" / "hooks.json").read_text() == "{not json"
+    assert not (project / ".codex" / "hooks.json.okeanos-bak").exists()
+
+
+def test_codex_project_warns_when_user_level_hooks_would_run_twice(home, fakebin, project):
+    add_agent(fakebin, "codex")
+    cursor_install(home, fakebin, "--agent", "codex")
+    code, out = cursor_install(home, fakebin, "--agent", "codex", "--project", cwd=project)
+    assert code == 0, out
+    assert "duas vezes" in out
+
+
+def test_orca_managed_codex_home_gets_no_user_level_hooks(home, fakebin):
+    add_agent(fakebin, "codex")
+    codex = orca_home(home)
+    hooks_before = (codex / "hooks.json").read_text()
+    code, out = install(home, fakebin, "--agent", "codex")
+    assert code == 0, out
+    assert (codex / "hooks.json").read_text() == hooks_before
+    assert (codex / "config.toml").read_text() == USER_TOML
+    assert (codex / "AGENTS.md").read_text() == BLOCK
+    for name in SKILLS:
+        assert (home / ".agents" / "skills" / name).is_symlink(), name
+    assert ORCA_NOTE in out
+
+
+def test_orca_managed_codex_home_ignores_the_codex_hooks_flag(home, fakebin):
+    add_agent(fakebin, "codex")
+    codex = orca_home(home)
+    hooks_before = (codex / "hooks.json").read_text()
+    code, out = install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")
+    assert code == 0, out
+    assert (codex / "hooks.json").read_text() == hooks_before
+    assert (codex / "config.toml").read_text() == USER_TOML
+    assert ORCA_NOTE in out
+
+
+def test_orca_managed_codex_home_migrates_the_old_config_toml_block(home, fakebin):
+    add_agent(fakebin, "codex")
+    codex = orca_codex(home)
+    install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")  # the previous mode
+    assert "# okeanos:start" in (codex / "config.toml").read_text()
+    (codex / ".orca-managed-home").write_text("")
+    code, out = install(home, fakebin, "--agent", "codex")
+    assert code == 0, out
+    assert (codex / "config.toml").read_text() == USER_TOML
+    assert okeanos_commands(json.loads((codex / "hooks.json").read_text())) == []
+
+
+def test_plain_codex_install_migrates_the_old_config_toml_block_to_hooks_json(home, fakebin):
+    add_agent(fakebin, "codex")
+    codex = orca_codex(home, hooks={"hooks": {}})
+    install(home, fakebin, "--agent", "codex", "--codex-hooks", "toml")
+    code, out = install(home, fakebin, "--agent", "codex")
+    assert code == 0, out
+    assert (codex / "config.toml").read_text() == USER_TOML
+    assert okeanos_commands(json.loads((codex / "hooks.json").read_text()))
+
+
+def test_doctor_shows_orca_and_codex_project_hooks(home, fakebin, project):
+    add_agent(fakebin, "codex")
+    doctor = lambda: cursor_install(home, fakebin, cli="doctor", cwd=project)[1].splitlines()  # noqa: E731
+    lines = doctor()
+    assert any("Orca" in l and l.rstrip().endswith("não") for l in lines), lines
+    assert any(".codex/hooks.json" in l and l.rstrip().endswith("não") for l in lines), lines
+    orca_home(home)
+    cursor_install(home, fakebin, "--agent", "codex")
+    cursor_install(home, fakebin, "--agent", "codex", "--project", cwd=project)
+    lines = doctor()
+    assert any("Orca" in l and l.rstrip().endswith("sim") for l in lines), lines
+    assert any(".codex/hooks.json" in l and l.rstrip().endswith("sim") for l in lines), lines
+    line = next(l for l in lines if l.strip().startswith("codex:"))
+    assert "instruções" in line and "skills" in line
