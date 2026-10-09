@@ -70,7 +70,7 @@ O agente altera a asserção para o teste passar. Editar, apagar ou desligar (`s
 
 ### "Pronto" com teste vermelho
 
-O agente encerra o turno dizendo que terminou. Se o código mudou na sessão, o hook de fim de turno roda os comandos `onDone` (typecheck, testes, build) e impede o encerramento enquanto falharem. Quando a correção depende de uma decisão sua, o agente explica e termina com a linha `**Okeanos** · precisa de você`, que libera o encerramento. Depois de 3 bloqueios seguidos, a falha passa para você do mesmo jeito.
+O agente encerra o turno dizendo que terminou. Se o código mudou na sessão, o hook de fim de turno roda os comandos `onDone` (typecheck, testes, build) e impede o encerramento enquanto falharem. Quando a correção depende de uma decisão sua, o agente explica e termina com a linha `[Okeanos] precisa de você`, que libera o encerramento. Depois de 3 bloqueios seguidos, a falha passa para você do mesmo jeito.
 
 ### Pacotes alucinados
 
@@ -231,7 +231,7 @@ Cada etapa do processo é uma suposição sobre o que o modelo ainda não faz be
 
 ## Limitações
 
-- Copilot e Cursor ainda não rodaram numa sessão real com o Okeanos; parte do formato dos dados foi tirada da documentação. Detalhes em [docs/agentes.md](docs/agentes.md#limitações-por-agente).
+- Copilot e Cursor ainda não rodaram numa sessão real com o Okeanos; parte do formato dos dados foi tirada da documentação. Detalhes em [docs/agentes.md](docs/agentes.md).
 - Os hooks precisam de `python3`; o modo AFK precisa de Node e Docker; a checagem de pacotes precisa de rede.
 - Gemini CLI e opencode não são suportados.
 - As paradas para aprovação atrapalham exploração rápida. Nesses casos, use "sem okeanos".

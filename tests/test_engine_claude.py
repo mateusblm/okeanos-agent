@@ -16,7 +16,8 @@ import pytest
 
 ENGINE = Path(__file__).resolve().parent.parent / "hooks" / "okeanos.py"
 RUN = Path(__file__).resolve().parent.parent / "hooks" / "run"
-HANDOFF = "**Okeanos** · precisa de você"
+HANDOFF = "[Okeanos] precisa de você"
+OLD_HANDOFF = "**Okeanos** · precisa de você"  # sessions mid-flight still use it
 # Hooks run from a directory outside any git repo, so a payload without `cwd`
 # can never touch the repository running these tests.
 NEUTRAL_CWD = tempfile.mkdtemp(prefix="okeanos-neutral-")
@@ -377,6 +378,41 @@ def test_handoff_line_lets_the_agent_stop_with_a_message(repo):
     assert code == 0
     assert set(out) == {"systemMessage"} and "decisão sua" in out["systemMessage"]
     assert "stop:handoff" in [e["kind"] for e in metrics(repo)]
+
+
+def test_old_handoff_line_is_still_accepted(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "echo FAILED; exit 1"}]})
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    code, out = stop(repo, last="Preciso que você decida.\n\n" + OLD_HANDOFF)
+    assert code == 0
+    assert set(out) == {"systemMessage"} and "decisão sua" in out["systemMessage"]
+    assert "stop:handoff" in [e["kind"] for e in metrics(repo)]
+
+
+def test_block_asks_for_the_new_handoff_line_only(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "echo FAILED; exit 1"}]})
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    code, out = stop(repo)
+    assert out["decision"] == "block"
+    assert f"`{HANDOFF}`" in out["reason"] and OLD_HANDOFF not in out["reason"]
+
+
+def test_hook_messages_start_with_the_okeanos_prefix(repo):
+    assert decision(bash(repo, "git push origin feature")[1])[1].startswith("[Okeanos] G2: publicar (git push)")
+    assert decision(bash(repo, "git push --force origin feature")[1])[1].startswith("[Okeanos] force push")
+    assert decision(bash(repo, "rm -rf /opt/somewhere/else")[1])[1].startswith("[Okeanos] `rm -r` fora")
+    assert decision(bash(repo, "okeanos aprovar push")[1])[1].startswith("[Okeanos] aprovações são do humano")
+    payload = {"session_id": "s1", "cwd": str(repo), "hook_event_name": "UserPromptSubmit", "prompt": "oi"}
+    context = hook("prompt", payload)[1]["hookSpecificOutput"]["additionalContext"]
+    assert context.startswith("[Okeanos] antes de agir") and "([Okeanos] rota: <Direto|" in context
+    assert "**Okeanos**" not in context
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "echo FAILED; exit 1"}]})
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    assert stop(repo)[1]["reason"].startswith("[Okeanos] definição de pronto: corrija antes de encerrar")
+    assert stop(repo, last=HANDOFF)[1]["systemMessage"].startswith("[Okeanos] o agente parou")
 
 
 def test_passing_done_is_silent(repo):

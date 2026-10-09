@@ -25,7 +25,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "hooks" / "okeanos.py"
 ONBOARD = ROOT / "hooks" / "onboard-check.sh"
-HANDOFF = "**Okeanos** · precisa de você"
+HANDOFF = "[Okeanos] precisa de você"
+OLD_HANDOFF = "**Okeanos** · precisa de você"  # sessions mid-flight still use it
 NEUTRAL_CWD = tempfile.mkdtemp(prefix="okeanos-neutral-")
 NOW = 1_800_000_000
 CLOCK = {"OKEANOS_NOW": str(NOW)}
@@ -359,6 +360,17 @@ def test_handoff_line_in_the_transcript_lets_copilot_stop(repo, tmp_path):
         {"type": "assistant.message", "data": {"content": "Preciso de uma decisão.\n\n" + HANDOFF}},
         {"type": "tool.execution_complete", "data": {}},
     ]) + "\n")
+    payload = camel(repo) | {"transcriptPath": str(transcript), "stopReason": "end_turn", "stop_hook_active": False}
+    assert hook("stop", payload) == (0, None)
+
+
+def test_old_handoff_line_in_the_transcript_still_lets_copilot_stop(repo, tmp_path):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "exit 1"}]})
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    transcript = tmp_path / "events.jsonl"
+    transcript.write_text(json.dumps({"type": "assistant.message",
+                                      "data": {"content": "Preciso de uma decisão.\n\n" + OLD_HANDOFF}}) + "\n")
     payload = camel(repo) | {"transcriptPath": str(transcript), "stopReason": "end_turn", "stop_hook_active": False}
     assert hook("stop", payload) == (0, None)
 

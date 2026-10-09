@@ -19,7 +19,9 @@ from .packages import check_package, package_requests
 from .plumbing import fallback_dir, git, load_checks, load_state, run, save_state, state_path, tail
 
 MAX_BLOCKS = 3
-HANDOFF_MARK = "**Okeanos** · precisa de você"
+HANDOFF_MARK = "[Okeanos] precisa de você"
+# Still accepted from sessions and agents that started with the old process text.
+HANDOFF_MARKS = (HANDOFF_MARK, "**Okeanos** · precisa de você")
 DEFAULT_MAX_LINES = 400
 
 TEST_PATTERNS = [
@@ -178,21 +180,21 @@ def check_git(toks, root):
         return None
     sub, rest = args[0], args[1:]
     if "--no-verify" in rest or (sub == "commit" and "-n" in rest):
-        return (DENY, "Okeanos: --no-verify pula os hooks de verificação do repositório. Corrija o que o hook acusa em vez de pulá-lo.")
+        return (DENY, "[Okeanos] --no-verify pula os hooks de verificação do repositório. Corrija o que o hook acusa em vez de pulá-lo.")
     if sub == "push":
         if any(a in ("--force", "-f") or (a.startswith("-") and not a.startswith("--") and "f" in a) for a in rest):
-            return (DENY, "Okeanos: force push reescreve histórico publicado. Se for mesmo necessário, o usuário roda o comando.")
-        return (ASK, "Okeanos · G2: publicar (git push) exige a sua aprovação. Confira o resumo do G2 antes de aprovar.")
+            return (DENY, "[Okeanos] force push reescreve histórico publicado. Se for mesmo necessário, o usuário roda o comando.")
+        return (ASK, "[Okeanos] G2: publicar (git push) exige a sua aprovação. Confira o resumo do G2 antes de aprovar.")
     if sub == "merge":
         branch = git(root, "rev-parse", "--abbrev-ref", "HEAD") if root else None
         if branch in ("main", "master", "develop", "trunk"):
-            return (ASK, f"Okeanos · G2: merge na branch padrão ({branch}) exige a sua aprovação.")
+            return (ASK, f"[Okeanos] G2: merge na branch padrão ({branch}) exige a sua aprovação.")
     return None
 
 
 def check_cli_publish(toks):
     if len(toks) >= 3 and toks[0] in ("gh", "glab") and toks[1] in ("pr", "mr") and toks[2] in ("create", "merge"):
-        return (ASK, f"Okeanos · G2: `{' '.join(toks[:3])}` publica o trabalho e exige a sua aprovação.")
+        return (ASK, f"[Okeanos] G2: `{' '.join(toks[:3])}` publica o trabalho e exige a sua aprovação.")
     return None
 
 
@@ -207,10 +209,10 @@ def check_rm(toks, root):
     for target in (t for t in toks[1:] if not t.startswith("-")):
         expanded = os.path.expanduser(os.path.expandvars(target))
         if expanded in ("/", "~", os.path.expanduser("~"), "*", ".", ".."):
-            return (DENY, f"Okeanos: `rm -r {target}` apaga demais. Remova caminhos específicos dentro do repositório.")
+            return (DENY, f"[Okeanos] `rm -r {target}` apaga demais. Remova caminhos específicos dentro do repositório.")
         absolute = os.path.normpath(expanded if os.path.isabs(expanded) else os.path.join(root or os.getcwd(), expanded))
         if root and not (absolute == root or absolute.startswith(root + os.sep)) and not absolute.startswith("/tmp/"):
-            return (DENY, f"Okeanos: `rm -r` fora do repositório ({target}). Se for intencional, o usuário roda o comando.")
+            return (DENY, f"[Okeanos] `rm -r` fora do repositório ({target}). Se for intencional, o usuário roda o comando.")
     return None
 
 
@@ -296,7 +298,7 @@ def committed_tests_touched(root, cwd, targets):
 # approvals belong to the human: the agent never grants them to itself
 # ---------------------------------------------------------------------------
 
-HUMAN_ONLY = ("Okeanos: aprovações são do humano. Só o usuário roda `okeanos aprovar`/`revogar`/`codex-confiar`, "
+HUMAN_ONLY = ("[Okeanos] aprovações são do humano. Só o usuário roda `okeanos aprovar`/`revogar`/`codex-confiar`, "
               "no terminal dele, e ninguém além da CLI escreve no estado do Okeanos ({what}). Peça ao usuário e espere.")
 # Subcommands that grant trust: approving an action, revoking one, trusting the Codex hooks.
 APPROVAL_SUBCOMMANDS = ("aprovar", "revogar", "codex-confiar")
@@ -563,13 +565,13 @@ def pre_shell(event, ctx):
             touched = committed_tests_touched(root, event.cwd, bash_write_targets(seg, toks))
             pending = [t for t in touched if t not in live]
             if touched:
-                asks.append((touched, "Okeanos: este comando escreve, move ou apaga teste(s) já commitado(s): "
+                asks.append((touched, "[Okeanos] este comando escreve, move ou apaga teste(s) já commitado(s): "
                              + ", ".join(pending or touched) + ". Testes commitados são o contrato: mudar exige a sua aprovação. "
                              "Adicionar testes novos não pede; prefira a ferramenta Edit para mudanças pontuais."))
         if root and toks[:2] == ["git", "commit"]:
             secrets = scan_secrets(root)
             if secrets:
-                return Decision(DENY, "Okeanos: possível segredo no que seria commitado:\n- " + "\n- ".join(secrets[:10])
+                return Decision(DENY, "[Okeanos] possível segredo no que seria commitado:\n- " + "\n- ".join(secrets[:10])
                                 + "\nTire o segredo do código (variável de ambiente, .gitignore) antes de commitar.")
         for eco, name in package_requests(toks)[:5]:
             result = check_package(eco, name)
@@ -651,7 +653,7 @@ def pre_edit(event, ctx):
     weakened = [l for old, new in pairs for l in weakened_test_lines(old, new)]
     if weakened:
         detail = "\n".join(f"- {l[:100]}" for l in weakened[:5])
-        return resolve_asks([([rel], f"Okeanos: `{rel}` é um teste já commitado, e esta edição altera, remove ou desliga "
+        return resolve_asks([([rel], f"[Okeanos] `{rel}` é um teste já commitado, e esta edição altera, remove ou desliga "
                                      f"asserções ou casos de teste:\n{detail}\nTestes commitados são o contrato: mudar exige a sua aprovação. "
                                      "Adicionar testes e mexer em imports ou helpers não pede.")], ctx)
     return Decision()
@@ -680,7 +682,7 @@ def post_edit(event, ctx):
             failures.append(f"[{check.get('name', 'check')}] `{cmd}` falhou:\n{tail(out, 25)}")
     if failures:
         ctx.log("post-edit:fail", rel)
-        return Decision(BLOCK, "Okeanos: verificação por edição em " + rel + ":\n\n" + "\n\n".join(failures))
+        return Decision(BLOCK, "[Okeanos] verificação por edição em " + rel + ":\n\n" + "\n\n".join(failures))
     return Decision()
 
 
@@ -788,13 +790,13 @@ def stop(event, ctx):
         if code != 0:
             failures.append(f"[{check.get('name', 'check')}] `{cmd}` falhou:\n{tail(out)}")
 
-    if failures and HANDOFF_MARK in event.last_message:
+    if failures and any(mark in event.last_message for mark in HANDOFF_MARKS):
         # The agent says the fix needs a user decision: stop now, but make the failure visible.
         state["blocks"] = 0
         state["escalated_fp"] = fp
         save_state(path, state)
         ctx.log("stop:handoff", failures[0].splitlines()[0])
-        return Decision(message="Okeanos: o agente parou com a definição de pronto falhando porque a correção "
+        return Decision(message="[Okeanos] o agente parou com a definição de pronto falhando porque a correção "
                                 "depende de uma decisão sua:\n\n" + "\n\n".join(failures))
 
     if failures:
@@ -805,10 +807,10 @@ def stop(event, ctx):
             state["blocks"] = 0
             state["escalated_fp"] = fp
             save_state(path, state)
-            return Decision(message="Okeanos: a definição de pronto falhou "
+            return Decision(message="[Okeanos] a definição de pronto falhou "
                                     f"{MAX_BLOCKS} vezes seguidas e precisa de você:\n\n" + "\n\n".join(failures))
         save_state(path, state)
-        return Decision(BLOCK, "Okeanos · definição de pronto: corrija antes de encerrar "
+        return Decision(BLOCK, "[Okeanos] definição de pronto: corrija antes de encerrar "
                                f"(tentativa {state['blocks']}/{MAX_BLOCKS}). Se a correção depende de uma decisão do usuário "
                                f"(por exemplo, mudar um teste commitado ou uma regra de produto), não force: explique a decisão "
                                f"e termine sua resposta com a linha `{HANDOFF_MARK}`.\n\n"
@@ -832,7 +834,7 @@ def stop(event, ctx):
         save_state(path, state)
         for note in review:
             ctx.log("stop:tamper" if note in tamper else "stop:suppression", note)
-        return Decision(BLOCK, "Okeanos: pontos que o usuário precisa saber nesta sessão:\n- " + "\n- ".join(review)
+        return Decision(BLOCK, "[Okeanos] pontos que o usuário precisa saber nesta sessão:\n- " + "\n- ".join(review)
                                + "\nNa sua resposta, diga cada um ao usuário com o motivo. Teste afrouxado ou supressão sem motivo forte: desfaça.")
     if state.get("passed_fp") != fp:
         ctx.log("stop:pass", f"{size} linhas")
@@ -843,7 +845,7 @@ def stop(event, ctx):
     if suppressions:
         warnings.append(f"{len(suppressions)} supressão(ões) de lint/tipo nova(s)")
     if warnings:
-        return Decision(message="Okeanos: " + "\n".join(warnings))
+        return Decision(message="[Okeanos] " + "\n".join(warnings))
     return Decision()
 
 
@@ -851,8 +853,8 @@ def stop(event, ctx):
 # prompt: first message of a session gets the route reminder
 # ---------------------------------------------------------------------------
 
-ROUTE_REMINDER = ("Okeanos: antes de agir nesta demanda, classifique a rota e anuncie em uma linha "
-                  "(**Okeanos** · rota: <Direto|Bug|Feature|Feature grande|Épico|Triagem> · <motivo>). "
+ROUTE_REMINDER = ("[Okeanos] antes de agir nesta demanda, classifique a rota e anuncie em uma linha "
+                  "([Okeanos] rota: <Direto|Bug|Feature|Feature grande|Épico|Triagem> · <motivo>). "
                   "Perguntas puras dispensam o anúncio.")
 
 

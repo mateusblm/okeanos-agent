@@ -19,7 +19,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "hooks" / "okeanos.py"
 ONBOARD = ROOT / "hooks" / "onboard-check.sh"
-HANDOFF = "**Okeanos** · precisa de você"
+HANDOFF = "[Okeanos] precisa de você"
+OLD_HANDOFF = "**Okeanos** · precisa de você"  # sessions mid-flight still use it
 NEUTRAL_CWD = tempfile.mkdtemp(prefix="okeanos-neutral-")
 NOW = 1_800_000_000
 CLOCK = {"OKEANOS_NOW": str(NOW)}
@@ -361,6 +362,34 @@ def test_handoff_line_lets_codex_stop_with_a_warning(repo):
     (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
     code, out = stop(repo, last="Preciso de uma decisão.\n\n" + HANDOFF)
     assert code == 0 and set(out) == {"systemMessage"}
+
+
+def test_old_handoff_line_still_lets_codex_stop(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "exit 1"}]})
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    code, out = stop(repo, last="Preciso de uma decisão.\n\n" + OLD_HANDOFF)
+    assert code == 0 and set(out) == {"systemMessage"}
+
+
+def test_hook_messages_start_with_the_okeanos_prefix(repo):
+    reason = denied(shell(repo, "git push origin feature")[1])
+    assert reason.startswith("[Okeanos] G2: publicar (git push)")
+    assert reason.splitlines()[-1] == "Para aprovar: okeanos aprovar push"
+    assert denied(shell(repo, "git commit --no-verify -m wip")[1]).startswith("[Okeanos] --no-verify")
+    assert denied(patch(repo, CHANGE_ASSERTION)[1]).startswith("[Okeanos] `tests/test_calc.py` é um teste")
+    context = hook("prompt", common(repo, "UserPromptSubmit") | {"prompt": "oi"})[1]
+    context = context["hookSpecificOutput"]["additionalContext"]
+    assert context.startswith("[Okeanos] antes de agir") and "([Okeanos] rota: <Direto|" in context
+    note = json.loads(onboard(repo, "codex"))["hookSpecificOutput"]["additionalContext"]
+    assert note.startswith("[Okeanos] This repo has")
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "echo FAILED; exit 1"}]})
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    reason = stop(repo)[1]["reason"]
+    assert reason.startswith("[Okeanos] definição de pronto: corrija antes de encerrar")
+    assert f"`{HANDOFF}`" in reason and OLD_HANDOFF not in reason
+    assert stop(repo, last=HANDOFF)[1]["systemMessage"].startswith("[Okeanos] o agente parou")
 
 
 def test_passing_done_is_silent(repo):

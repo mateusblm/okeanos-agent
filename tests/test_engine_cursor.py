@@ -25,7 +25,8 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "hooks" / "okeanos.py"
 ONBOARD = ROOT / "hooks" / "onboard-check.sh"
-HANDOFF = "**Okeanos** · precisa de você"
+HANDOFF = "[Okeanos] precisa de você"
+OLD_HANDOFF = "**Okeanos** · precisa de você"  # sessions mid-flight still use it
 NEUTRAL_CWD = tempfile.mkdtemp(prefix="okeanos-neutral-")
 NOW = 1_800_000_000
 CLOCK = {"OKEANOS_NOW": str(NOW)}
@@ -310,6 +311,15 @@ def test_handoff_line_in_the_last_response_lets_cursor_stop(repo):
     session_start(repo)
     (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
     assert agent_response(repo, "Preciso de uma decisão.\n\n" + HANDOFF) == (0, None)
+    assert stop(repo) == (0, None)
+    assert "stop:handoff" in [e["kind"] for e in metrics(repo)]
+
+
+def test_old_handoff_line_still_lets_cursor_stop(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "exit 1"}]})
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "# changed\n")
+    assert agent_response(repo, "Preciso de uma decisão.\n\n" + OLD_HANDOFF) == (0, None)
     assert stop(repo) == (0, None)
     assert "stop:handoff" in [e["kind"] for e in metrics(repo)]
 

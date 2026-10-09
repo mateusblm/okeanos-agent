@@ -47,7 +47,7 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" --agent claude post-edit",
             "timeout": 120,
-            "statusMessage": "Okeanos: format e lint"
+            "statusMessage": "[Okeanos] format e lint"
           }
         ]
       }
@@ -59,7 +59,7 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/run\" --agent claude stop",
             "timeout": 1800,
-            "statusMessage": "Okeanos: definição de pronto"
+            "statusMessage": "[Okeanos] definição de pronto"
           }
         ]
       }

@@ -55,7 +55,7 @@ else
   fi
 fi
 
-msg="Okeanos: ${note} Then continue with the user's request."
+msg="[Okeanos] ${note} Then continue with the user's request."
 if [ "$agent" = cursor ]; then
   printf '{"additional_context":"%s"}\n' "$msg"
 elif [ "$agent" = copilot ]; then
