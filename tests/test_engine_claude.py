@@ -719,3 +719,158 @@ def test_agent_cannot_edit_git_hooks_with_the_editor(repo):
     code, out = edit(repo, "Write", {"file_path": str(repo / ".git" / "hooks" / "pre-commit"), "content": "exit 0\n"})
     action, _ = decision(out)
     assert action == "deny"
+
+
+# ---------------------------------------------------------------------------
+# self-approval through an interpreter, a pseudo-terminal or a cleaned environment
+# ---------------------------------------------------------------------------
+
+PTY_REPRO = "env -u CLAUDECODE python3 -c \"import pty; pty.spawn(['/path/bin/okeanos','aprovar','push'])\""
+NODE_APPROVAL = ("node -e \"require('child_process').spawnSync('/path/bin/okeanos', ['aprovar', 'push'], "
+                 "{stdio: 'inherit'})\"")
+PERL_APPROVAL = "perl -e 'exec(\"/path/bin/okeanos\", \"aprovar\", \"push\")'"
+SCRIPT_LIST_APPROVAL = ("script -qc \"python3 -c \\\"import subprocess; subprocess.run(['okeanos', 'aprovar', "
+                        "'push'])\\\"\" /dev/null")
+FAR_APART = [
+    "cd /home/u/okeanos-codex-e2e && timeout 60 codex exec 'muda o limite' && grep -n 'Para aprovar' log.txt",
+    "cd ~/okeanos-demo && env FOO=1 npm test && echo 'falta aprovar o PR'",
+    "cd /home/u/okeanos-demo && python3 -m pytest -q -k aprovar",
+    "cd ~/okeanos-demo && node -e 'console.log(1)' && echo 'falta aprovar o PR'",
+    "cd /home/u/okeanos-demo && python3 -c \"import pty; pty.spawn(['npm', 'test'])\"",
+]
+
+
+@pytest.mark.parametrize("command", [
+    PTY_REPRO,
+    "python3 -c \"import pty; pty.spawn(['/path/bin/okeanos', 'aprovar', 'push'])\"",
+    NODE_APPROVAL,
+    PERL_APPROVAL,
+    "ruby -e 'system(\"okeanos\", \"revogar\")'",
+    SCRIPT_LIST_APPROVAL,
+    "python3 -c \"import pty,sys; pty.spawn(sys.argv[1:])\" bin/okeanos aprovar push",
+    "python3 -c \"from okeanos_engine import user_cli; user_cli.main(['aprovar', 'push'])\"",
+    "python3 -c \"import os, pty; os.environ.pop('CLAUDECODE'); pty.spawn(['okeanos', 'apro' + 'var', 'push'])\"",
+    "python3 - <<'EOF'\nimport pty\npty.spawn(['okeanos', 'aprovar', 'push'])\nEOF",
+    "socat - \"EXEC:/path/bin/okeanos aprovar push\",pty,setsid",
+    "tmux new-session -d '/path/bin/okeanos aprovar push'",
+    "echo aprovar push | xargs okeanos",
+    "unset CLAUDECODE CODEX_THREAD_ID && script -q /dev/null bin/okeanos",
+    "env -u CODEX_THREAD_ID -u CODEX_SESSION_ID bin/okeanos doctor",
+    "CLAUDECODE= python3 hooks/okeanos.py",
+])
+def test_agent_approving_through_an_interpreter_or_pty_is_denied(repo, command):
+    d, reason = decision(bash(repo, command)[1])
+    assert d == "deny" and "humano" in reason, command
+
+
+@pytest.mark.parametrize("command", FAR_APART + [
+    "script -q /dev/null npm test",
+    "env -u FOO okeanos doctor",
+    "python3 -m pytest -q tests/test_user_cli.py -k aprovar",
+])
+def test_interpreters_and_ptys_without_the_okeanos_cli_are_allowed(repo, command):
+    assert bash(repo, command) == (0, None), command
+
+
+# ---------------------------------------------------------------------------
+# the TMPDIR fallback state belongs to the human too
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def tmpdir_env(tmp_path):
+    d = tmp_path / "tmp"
+    d.mkdir()
+    return d, {"TMPDIR": str(d)}
+
+
+@pytest.mark.parametrize("command", [
+    "echo '{}' > {tmp}/okeanos/0123456789abcdef/sessions/s1.json",
+    "rm -rf {tmp}/okeanos",
+    "rm -rf /tmp/okeanos/0123456789abcdef",
+    "python3 -c \"import shutil; shutil.rmtree('{tmp}/okeanos')\"",
+    "sed -i 's/1/2/' {tmp}/okeanos/0123456789abcdef/metrics.jsonl",
+])
+def test_agent_writing_fallback_state_is_denied(repo, tmpdir_env, command):
+    tmp, env = tmpdir_env
+    d, reason = decision(bash(repo, command.replace("{tmp}", str(tmp)), env=env)[1])
+    assert d == "deny" and "humano" in reason, command
+
+
+@pytest.mark.parametrize("command", [
+    "cat {tmp}/okeanos/0123456789abcdef/metrics.jsonl",
+    "rm -rf /tmp/okeanos-build",
+    "ls /tmp/okeanos-neutral-abc",
+])
+def test_reading_fallback_state_and_lookalike_paths_are_allowed(repo, tmpdir_env, command):
+    tmp, env = tmpdir_env
+    assert bash(repo, command.replace("{tmp}", str(tmp)), env=env) == (0, None), command
+
+
+def test_agent_editing_fallback_state_is_denied(repo, tmpdir_env):
+    tmp, env = tmpdir_env
+    path = tmp / "okeanos" / "0123456789abcdef" / "sessions" / "s1.json"
+    d, reason = decision(edit(repo, "Write", {"file_path": str(path), "content": "{}"}, env=env)[1])
+    assert d == "deny" and "humano" in reason
+
+
+# ---------------------------------------------------------------------------
+# project hook files with Okeanos entries, and `okeanos install --uninstall`
+# ---------------------------------------------------------------------------
+
+HOOK_FILES = {
+    ".codex/hooks.json": '{"hooks": {"PreToolUse": [{"hooks": [{"command": "/x/okeanos/hooks/run --agent codex pre-tool"}]}]}}\n',
+    ".cursor/hooks.json": '{"hooks": {"stop": [{"command": "/x/okeanos/hooks/run --agent cursor stop"}]}}\n',
+    ".cursor/rules/okeanos.mdc": "---\ndescription: Processo Okeanos\n---\n# Okeanos\n",
+    ".github/hooks/okeanos.json": '{"hooks": {"agentStop": [{"bash": "/x/okeanos/hooks/run --agent copilot stop"}]}}\n',
+}
+
+
+@pytest.fixture
+def hooked_repo(repo):
+    for rel, text in HOOK_FILES.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_text(text)
+    return repo
+
+
+@pytest.mark.parametrize("command", [
+    "rm .codex/hooks.json",
+    "mv .codex/hooks.json /tmp/x.json",
+    "echo '{}' > .codex/hooks.json",
+    "chmod 000 .cursor/hooks.json",
+    "sed -i 's/okeanos//' .cursor/rules/okeanos.mdc",
+    "rm -rf .github/hooks",
+    "rm -rf .codex",
+    "python3 -c \"import os; os.remove('.codex/hooks.json')\"",
+    "okeanos install --uninstall",
+    "okeanos install --agent codex --uninstall",
+    "bin/okeanos install --agent cursor --project --uninstall",
+    "sh -c 'okeanos install --agent codex --project --uninstall'",
+])
+def test_agent_cannot_remove_project_hooks_or_uninstall(hooked_repo, command):
+    d, reason = decision(bash(hooked_repo, command)[1])
+    assert d == "deny" and "humano" in reason, command
+
+
+@pytest.mark.parametrize("command", [
+    "cat .codex/hooks.json",
+    "jq . .cursor/hooks.json",
+    "git add .codex/hooks.json .github/hooks/okeanos.json",
+    "okeanos install --agent codex --project",
+    "okeanos install --dry-run",
+])
+def test_reading_project_hooks_and_installing_are_allowed(hooked_repo, command):
+    assert bash(hooked_repo, command) == (0, None), command
+
+
+def test_hook_files_without_okeanos_are_free(repo):
+    (repo / ".codex").mkdir()
+    (repo / ".codex" / "hooks.json").write_text('{"hooks": {}}\n')
+    assert bash(repo, "rm .codex/hooks.json") == (0, None)
+    assert bash(repo, "echo '{}' > .cursor/hooks.json") == (0, None)
+
+
+@pytest.mark.parametrize("rel", sorted(HOOK_FILES))
+def test_agent_cannot_edit_project_hooks_with_the_editor(hooked_repo, rel):
+    d, reason = decision(edit(hooked_repo, "Write", {"file_path": str(hooked_repo / rel), "content": "{}"})[1])
+    assert d == "deny" and "humano" in reason, rel

@@ -84,3 +84,17 @@ def test_check_does_not_write_files(repo):
 
     assert result.returncode != 0
     assert not (repo / "output-styles" / "okeanos.md").exists()
+
+
+def test_agents_md_markers_match_the_installer():
+    """The installer finds and replaces the block by these markers: they must not drift apart."""
+    import importlib.util
+    sys.path.insert(0, str(REPO / "hooks"))
+    try:
+        from okeanos_engine import installer
+    finally:
+        sys.path.pop(0)
+    spec = importlib.util.spec_from_file_location("okeanos_build", REPO / "scripts" / "build.py")
+    build = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(build)
+    assert (build.AGENTS_MD_START, build.AGENTS_MD_END) == (installer.BLOCK_START, installer.BLOCK_END)

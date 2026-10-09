@@ -270,6 +270,58 @@ def test_patch_writing_okeanos_state_is_denied(repo):
     assert "humano" in denied(patch(repo, text)[1])
 
 
+@pytest.mark.parametrize("command", [
+    "env -u CLAUDECODE python3 -c \"import pty; pty.spawn(['/path/bin/okeanos','aprovar','push'])\"",
+    "env -u CODEX_THREAD_ID -u CODEX_SESSION_ID python3 -c \"import pty; pty.spawn(['okeanos', 'aprovar', 'push'])\"",
+    "node -e \"require('child_process').spawnSync('/path/bin/okeanos', ['aprovar', 'push'], {stdio: 'inherit'})\"",
+    "perl -e 'exec(\"/path/bin/okeanos\", \"aprovar\", \"push\")'",
+])
+def test_agent_approving_through_an_interpreter_or_pty_is_denied(repo, command):
+    assert "humano" in denied(shell(repo, command)[1])
+
+
+def test_pty_approval_as_argv_list_is_denied(repo):
+    payload = common(repo, "PreToolUse") | {"tool_name": "Bash", "tool_input": {"command": [
+        "bash", "-lc", "env -u CODEX_THREAD_ID python3 -c \"import pty; pty.spawn(['okeanos','aprovar','push'])\""]}}
+    assert "humano" in denied(hook("pre-tool", payload)[1])
+
+
+@pytest.mark.parametrize("command", [
+    "cd /home/u/okeanos-codex-e2e && timeout 60 codex exec 'muda o limite' && grep -n 'Para aprovar' log.txt",
+    "cd /home/u/okeanos-demo && python3 -c \"import pty; pty.spawn(['npm', 'test'])\"",
+])
+def test_okeanos_and_aprovar_far_apart_are_allowed(repo, command):
+    assert shell(repo, command) == (0, None)
+
+
+def test_shell_writing_fallback_state_is_denied(repo, tmp_path):
+    tmp = tmp_path / "tmp"
+    tmp.mkdir()
+    command = f"echo '{{}}' > {tmp}/okeanos/0123456789abcdef/sessions/s1.json"
+    assert "humano" in denied(shell(repo, command, env={"TMPDIR": str(tmp)})[1])
+
+
+def okeanos_codex_hooks(repo):
+    (repo / ".codex").mkdir()
+    (repo / ".codex" / "hooks.json").write_text(
+        '{"hooks": {"Stop": [{"hooks": [{"command": "/x/okeanos/hooks/run --agent codex stop"}]}]}}\n')
+
+
+def test_shell_removing_project_hooks_is_denied(repo):
+    okeanos_codex_hooks(repo)
+    assert "humano" in denied(shell(repo, "rm .codex/hooks.json")[1])
+
+
+def test_patch_deleting_project_hooks_is_denied(repo):
+    okeanos_codex_hooks(repo)
+    text = "*** Begin Patch\n*** Delete File: .codex/hooks.json\n*** End Patch"
+    assert "humano" in denied(patch(repo, text)[1])
+
+
+def test_agent_running_okeanos_uninstall_is_denied(repo):
+    assert "humano" in denied(shell(repo, "okeanos install --agent codex --project --uninstall")[1])
+
+
 # ---------------------------------------------------------------------------
 # post-tool: per-file checks go back to the agent
 # ---------------------------------------------------------------------------
