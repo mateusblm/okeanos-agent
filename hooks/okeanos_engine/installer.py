@@ -211,8 +211,8 @@ def codex_hooks(root):
         "SessionStart": [{"matcher": "startup|resume", "hooks": [h(onboard, 10), h(f"{run} session-start", 10)]}],
         "UserPromptSubmit": [{"hooks": [h(f"{run} prompt", 10)]}],
         "PreToolUse": [{"matcher": "Bash|apply_patch", "hooks": [h(f"{run} pre-tool", 30)]}],
-        "PostToolUse": [{"matcher": "apply_patch", "hooks": [h(f"{run} post-tool", 120, "Okeanos: format e lint")]}],
-        "Stop": [{"hooks": [h(f"{run} stop", 1800, "Okeanos: definição de pronto")]}],
+        "PostToolUse": [{"matcher": "apply_patch", "hooks": [h(f"{run} post-tool", 120, "[Okeanos] format e lint")]}],
+        "Stop": [{"hooks": [h(f"{run} stop", 1800, "[Okeanos] definição de pronto")]}],
     }
 
 

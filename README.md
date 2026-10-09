@@ -70,7 +70,7 @@ O agente altera a asserção para o teste passar. Editar, apagar ou desligar (`s
 
 ### "Pronto" com teste vermelho
 
-O agente encerra o turno dizendo que terminou. Se o código mudou na sessão, o hook de fim de turno roda os comandos `onDone` (typecheck, testes, build) e impede o encerramento enquanto falharem. Quando a correção depende de uma decisão sua, o agente explica e termina com a linha `**Okeanos** · precisa de você`, que libera o encerramento. Depois de 3 bloqueios seguidos, a falha passa para você do mesmo jeito.
+O agente encerra o turno dizendo que terminou. Se o código mudou na sessão, o hook de fim de turno roda os comandos `onDone` (typecheck, testes, build) e impede o encerramento enquanto falharem. Quando a correção depende de uma decisão sua, o agente explica e termina com a linha `[Okeanos] precisa de você`, que libera o encerramento. Depois de 3 bloqueios seguidos, a falha passa para você do mesmo jeito.
 
 ### Pacotes alucinados
 

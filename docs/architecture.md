@@ -606,7 +606,7 @@ Não há `GLOSSARY.md`. Termos usados aqui:
 | Rota | Classificação de um pedido (Direto, Bug, Feature, Feature grande, Épico, Triagem) que define o fluxo de skills. |
 | G1, G2 | Gates de aprovação: G1 antes do código de produção, G2 antes de push, PR, merge ou deploy. |
 | Definição de pronto | Os comandos `onDone` de `checks.json`, rodados no fim do turno quando o código mudou. |
-| Linha de handoff | `**Okeanos** · precisa de você`: o agente declara que a correção depende do usuário, e o stop libera. |
+| Linha de handoff | `[Okeanos] precisa de você`: o agente declara que a correção depende do usuário, e o stop libera. A forma antiga, `**Okeanos** · precisa de você`, ainda vale. |
 | Dialeto | Módulo que traduz o formato de hook de um agente para `Event` e `Decision`. |
 | Event, Decision | O contrato neutro entre dialetos e regras. |
 | Alvo | O que uma aprovação libera: caminho de teste relativo ao repo, `push` ou `pacote:<nome>`. |

@@ -37,18 +37,18 @@ if [ -x "$prev" ]; then
   "$prev" "$@" || exit $?
 fi
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "okeanos: python3 não encontrado; hook $hook do Okeanos pulado." >&2
+  echo "[Okeanos] python3 não encontrado; hook $hook do Okeanos pulado." >&2
   exit 0
 fi
 if [ ! -f "$OKEANOS_CLI" ]; then
-  echo "okeanos: motor não encontrado em $OKEANOS_CLI; hook $hook do Okeanos pulado. Rode \\`okeanos githooks\\` de novo." >&2
+  echo "[Okeanos] motor não encontrado em $OKEANOS_CLI; hook $hook do Okeanos pulado. Rode \\`okeanos githooks\\` de novo." >&2
   exit 0
 fi
 python3 "$OKEANOS_CLI" githook "$hook" "$@" </dev/null
 code=$?
 [ "$code" -eq 0 ] && exit 0
 [ "$code" -eq {blocked} ] && exit 1
-echo "okeanos: o hook $hook do Okeanos falhou internamente (código $code); seguindo sem ele." >&2
+echo "[Okeanos] o hook $hook do Okeanos falhou internamente (código $code); seguindo sem ele." >&2
 exit 0
 """
 
@@ -173,7 +173,7 @@ def pre_commit(root):
                "--no-renames", timeout=30) or ""
     secrets = staged_secrets(root, diff)
     if secrets:
-        say("Okeanos (pre-commit): possível segredo no commit:\n- " + "\n- ".join(secrets[:10])
+        say("[Okeanos] pre-commit: possível segredo no commit:\n- " + "\n- ".join(secrets[:10])
             + "\nTire o segredo do código (variável de ambiente, .gitignore) e tire do stage antes de commitar.")
         return BLOCKED
     live = approvals.active(root)
@@ -181,14 +181,14 @@ def pre_commit(root):
     if weakened:
         detail = "\n".join(f"{rel}:\n" + "\n".join(f"  - {l[:100]}" for l in lines[:5])
                            for rel, lines in sorted(weakened.items()))
-        say("Okeanos (pre-commit): este commit altera, remove ou desliga asserções ou casos de teste "
+        say("[Okeanos] pre-commit: este commit altera, remove ou desliga asserções ou casos de teste "
             f"já commitados:\n{detail}\nTestes commitados são o contrato: mudar exige aprovação. "
             "Adicionar testes não pede.\n" + approvals.how_to(sorted(weakened)))
         return BLOCKED
     suppressions = [f"{rel}: {line.strip()[:80]}" for rel, line in added_lines(diff)
                     if not is_doc(rel) and SUPPRESSION.search(line)]
     if suppressions:
-        say("Okeanos (pre-commit, aviso): supressão de lint/tipo nova:\n- " + "\n- ".join(suppressions[:10])
+        say("[Okeanos] pre-commit, aviso: supressão de lint/tipo nova:\n- " + "\n- ".join(suppressions[:10])
             + "\nConfira se cada uma tem motivo forte.")
     return 0
 
@@ -199,7 +199,7 @@ def pre_commit(root):
 
 def pre_push(root):
     if not os.path.exists(os.path.join(root, "docs", "agents", "checks.json")):
-        say("Okeanos (pre-push): sem docs/agents/checks.json, nada a rodar (a skill onboard cria o arquivo).")
+        say("[Okeanos] pre-push: sem docs/agents/checks.json, nada a rodar (a skill onboard cria o arquivo).")
         return 0
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     failures = []
@@ -211,7 +211,7 @@ def pre_push(root):
         if code != 0:
             failures.append(f"[{check.get('name', 'check')}] `{cmd}` falhou:\n{tail(out)}")
     if failures:
-        say("Okeanos (pre-push): a definição de pronto falhou; push barrado.\n\n" + "\n\n".join(failures))
+        say("[Okeanos] pre-push: a definição de pronto falhou; push barrado.\n\n" + "\n\n".join(failures))
         return BLOCKED
     return 0
 

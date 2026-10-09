@@ -165,7 +165,7 @@ def check_package(eco, name):
             return None
     except urllib.error.HTTPError as e:
         if e.code in (404, 410):
-            return (DENY, f"Okeanos: o pacote `{name}` não existe em {eco}. Pode ser um nome alucinado; confira o nome certo antes de instalar.")
+            return (DENY, f"[Okeanos] o pacote `{name}` não existe em {eco}. Pode ser um nome alucinado; confira o nome certo antes de instalar.")
         return None
     except Exception:  # noqa: BLE001
         return None  # offline or registry down: don't block work
@@ -185,5 +185,5 @@ def check_package(eco, name):
             concerns.append(f"nome a uma letra de `{pop}`")
             break
     if concerns:
-        return (ASK, f"Okeanos: confira o pacote `{name}` antes de instalar: {', '.join(concerns)}.")
+        return (ASK, f"[Okeanos] confira o pacote `{name}` antes de instalar: {', '.join(concerns)}.")
     return None

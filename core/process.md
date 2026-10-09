@@ -12,7 +12,7 @@ Se a sessão está num repositório git com código e falta o arquivo de context
 
 Antes de agir, inclusive antes do bootstrap, classifique a demanda numa rota e anuncie em uma linha:
 
-> **Okeanos** · rota: <rota> · <motivo em poucas palavras>
+> [Okeanos] rota: <rota> · <motivo em poucas palavras>
 
 | Rota | Quando | Fluxo |
 | :- | :- | :- |
@@ -87,7 +87,7 @@ Estas regras não dependem de você lembrar: os hooks do Okeanos as aplicam. Tra
 
 Onde a regra pede aprovação e o hook do agente não consegue perguntar, a ação é bloqueada e o usuário aprova rodando `okeanos aprovar <alvo>` no próprio terminal (vale 10 minutos, só para aquele alvo); você nunca roda esse comando nem mexe em `.git/okeanos/`.
 
-- **Definição de pronto.** Quando o código mudou na sessão, você só encerra o turno com os comandos `onDone` de `docs/agents/checks.json` passando (typecheck, testes, build). Se o hook bloquear, corrija. Se a correção depende de uma decisão do usuário (mudar um teste commitado, uma regra de produto), não insista: explique a decisão e termine a resposta com a linha `**Okeanos** · precisa de você`, que libera o encerramento e mostra a falha ao usuário. Sem essa linha, depois de 3 tentativas o hook passa o problema para o usuário do mesmo jeito.
+- **Definição de pronto.** Quando o código mudou na sessão, você só encerra o turno com os comandos `onDone` de `docs/agents/checks.json` passando (typecheck, testes, build). Se o hook bloquear, corrija. Se a correção depende de uma decisão do usuário (mudar um teste commitado, uma regra de produto), não insista: explique a decisão e termine a resposta com a linha `[Okeanos] precisa de você`, que libera o encerramento e mostra a falha ao usuário. Sem essa linha, depois de 3 tentativas o hook passa o problema para o usuário do mesmo jeito.
 - **Testes commitados são o contrato.** Editar ou apagar linhas de um teste já commitado pede aprovação do usuário; adicionar testes é livre. Nunca afrouxe um teste para passar. Mudanças em testes existentes aparecem para o usuário no fim do turno.
 - **Format e lint a cada edição**, com os comandos `onEdit`. Se acusar erro, corrija na hora.
 - **Supressões novas** (`eslint-disable`, `@ts-ignore`, `as any`, `# type: ignore`, `# noqa`...) são apontadas no fim do turno: só use com motivo forte, e diga o motivo ao usuário.
@@ -97,7 +97,7 @@ Onde a regra pede aprovação e o hook do agente não consegue perguntar, a aç�
 
 ## 5. Durante o fluxo
 
-- Ao trocar de fase, anuncie em uma linha: `**Okeanos** · fase: <fase> (<skill>)`.
+- Ao trocar de fase, anuncie em uma linha: `[Okeanos] fase: <fase> (<skill>)`.
 - Mantenha alinhamento, spec e tickets numa mesma janela de contexto. Entre tickets implementados com `implement`, sugira limpar o contexto da conversa.
 - Se o escopo mudar no meio do caminho, pare, reclassifique e diga a nova rota.
 - **Retro por evento.** Ofereça `retro` em uma linha quando acontecer um destes: o usuário recusou o G2; o mesmo achado de review apareceu duas vezes; a definição de pronto escalou para o usuário; um bug apareceu em algo já entregue; fechou uma Feature grande ou um Épico. A retro trabalha com as métricas dos hooks e termina em 1 a 3 mudanças de sistema, nunca em "tomar mais cuidado".
