@@ -10,14 +10,11 @@
 O Okeanos conduz cada sessão de um agente de código por um processo de engenharia. São três partes, um núcleo só para quatro agentes (Claude Code, Codex, GitHub Copilot CLI e Cursor IDE):
 
 - **Processo**: o texto que classifica cada pedido numa rota (Direto, Bug, Feature, Feature grande, Épico, Triagem) e define dois gates de aprovação (G1 antes do código de produção, G2 antes de publicar).
-- **Skills**: instruções em Markdown que o agente chama conforme a rota (`grill-with-docs`, `to-spec`, `implement`, `code-review`, `as-built` e outras).
+- **Skills**: instruções em Markdown que o agente chama conforme a rota (`okeanos-grill-with-docs`, `okeanos-spec`, `okeanos-implement`, `okeanos-code-review`, `okeanos-as-built` e outras).
 - **Motor de hooks**: regras determinísticas em Python que o agente não pode esquecer: teste commitado protegido, definição de pronto, pacotes alucinados, segredos no commit, publicação só com aprovação humana.
 
 Em volta disso: a CLI do usuário (`okeanos`), com as aprovações e o instalador; os git hooks por projeto; e o runner do modo AFK, que executa tickets em sandboxes Docker.
 
-Features entregues:
-
-- [Portabilidade para Codex, Copilot e Cursor](features/portabilidade.md): núcleo neutro, motor com dialetos, CLI `okeanos` com aprovações, instalador único, git hooks, AFK com agente configurável.
 
 ### Metas de qualidade
 
@@ -203,7 +200,7 @@ Legenda: azul-escuro = pessoa · azul = container · cinza = sistema externo · 
 | install.sh | Clona em `~/.local/share/okeanos` (ou faz `git pull --ff-only`) e roda `okeanos install`. | sh |
 | Git hooks | `pre-commit` (segredos, testes afrouxados) e `pre-push` (comandos `onDone`), encadeando hooks anteriores. | sh que chama a CLI |
 | Estado local | `approvals.json`, `sessions/*.json`, `metrics.jsonl` em `<git-common-dir>/okeanos/`, com reserva em `<TMPDIR>/okeanos/<hash>/`. | JSON, JSONL |
-| Runner AFK (`skills/engineering/afk/scaffold/`) | Implementador e revisor por ticket, branch de integração, agente configurável (`AGENT`). | TypeScript, Sandcastle, Docker |
+| Runner AFK (`skills/engineering/okeanos-afk/scaffold/`) | Implementador e revisor por ticket, branch de integração, agente configurável (`AGENT`). | TypeScript, Sandcastle, Docker |
 
 ### Nível 2: componentes do motor de hooks
 
@@ -539,9 +536,9 @@ Legenda: azul = container · tracejado = fronteira (nó de implantação)
 
 **Mensagens.** Todo `ask` termina com `Para aprovar: okeanos aprovar <alvo>`. Mensagens de segredo citam arquivo e tipo, nunca o valor. Avisos só para o usuário (`Decision.message`) caem onde o agente não tem esse canal; ficam nas métricas.
 
-**Métricas.** Cada deny, ask, aprovação usada, bloqueio e falha vira uma linha JSON (`ts`, `agent`, `session`, `branch`, `kind`, `detail`) em `metrics.jsonl`. `okeanos metrics` soma o arquivo do git dir e o da reserva, por tipo e por agente; a skill `retro` usa esse resumo.
+**Métricas.** Cada deny, ask, aprovação usada, bloqueio e falha vira uma linha JSON (`ts`, `agent`, `session`, `branch`, `kind`, `detail`) em `metrics.jsonl`. `okeanos metrics` soma o arquivo do git dir e o da reserva, por tipo e por agente; a skill `okeanos-retro` usa esse resumo.
 
-**Configuração.** Por projeto, `docs/agents/checks.json` (criado pela skill `onboard`). Por máquina, variáveis: `CODEX_HOME`, `COPILOT_HOME`, `OKEANOS_REPO`, `OKEANOS_DIR`, e para testes `OKEANOS_HOME_DIR` (troca o HOME, inclusive dos CLIs de agente) e `OKEANOS_NOW` (relógio). `OKEANOS_HOOK_DEBUG` registra payloads crus.
+**Configuração.** Por projeto, `docs/agents/checks.json` (criado pela skill `okeanos-onboard`). Por máquina, variáveis: `CODEX_HOME`, `COPILOT_HOME`, `OKEANOS_REPO`, `OKEANOS_DIR`, e para testes `OKEANOS_HOME_DIR` (troca o HOME, inclusive dos CLIs de agente) e `OKEANOS_NOW` (relógio). `OKEANOS_HOOK_DEBUG` registra payloads crus.
 
 **Edição só do que é do Okeanos.** Blocos entre `<!-- okeanos:start -->` e `<!-- okeanos:end -->` (Markdown) ou `# okeanos:start` e `# okeanos:end` (TOML), handlers cujo comando roda `hooks/run` ou `onboard-check.sh` com `--agent <agente>`, links que apontam para o clone, git hooks com `# okeanos-githook`. Backup `<arquivo>.okeanos-bak` antes de mudar.
 
@@ -579,7 +576,7 @@ Não há ADRs em `docs/adr/`. Decisões relevantes, todas sem ADR:
 
 | Item | Tipo | Impacto | Origem |
 | :- | :- | :- | :- |
-| Autoaprovação residual no Codex e no Cursor: lá quem aprova é `okeanos aprovar`, e um agente rodando como o mesmo usuário do sistema poderia escrever um programa novo que contorne as checagens de `self_approval` (que reconhecem atalhos conhecidos, não toda forma de escrever no arquivo). | risco | Alto: a aprovação de teste ou de push vira fraca nesses agentes. Barreiras seguintes: stop, git hooks, CI. | [portabilidade](features/portabilidade.md), README (Aprovações) |
+| Autoaprovação residual no Codex e no Cursor: lá quem aprova é `okeanos aprovar`, e um agente rodando como o mesmo usuário do sistema poderia escrever um programa novo que contorne as checagens de `self_approval` (que reconhecem atalhos conhecidos, não toda forma de escrever no arquivo). | risco | Alto: a aprovação de teste ou de push vira fraca nesses agentes. Barreiras seguintes: stop, git hooks, CI. | README (Aprovações) |
 | Copilot não põe variável de sessão no shell das ferramentas: a recusa de `okeanos aprovar` ali depende só do TTY e dos hooks. | risco | Médio. | portabilidade |
 | `CURSOR_AGENT` não é documentada oficialmente; se sumir, a CLI perde um dos sinais de shell de agente. | risco | Médio: sobra o TTY e os hooks. | portabilidade |
 | Copilot e Cursor nunca rodaram uma sessão real com o Okeanos; os dialetos foram testados com payloads montados da documentação. | risco | Alto: um formato diferente faz o dialeto devolver `None` e tudo passa (fail-open). | portabilidade |
@@ -587,7 +584,7 @@ Não há ADRs em `docs/adr/`. Decisões relevantes, todas sem ADR:
 | Codex só passa `apply_patch` pelo `PostToolUse`: escritas pelo shell não rodam `onEdit`. | débito | Baixo: o stop ainda roda `onDone`. | portabilidade |
 | O Codex só roda hooks confiados. O instalador autoriza os do Okeanos com o seu consentimento (`okeanos codex-confiar`), pelas mesmas chamadas do `app-server` que o `/hooks` usa, mas essas chamadas não são documentadas para este uso (openai/codex#21615); se mudarem, volta a valer o `/hooks` manual. Depois de atualizar o Okeanos, autorizar de novo. | risco | Médio. | portabilidade, codex-confiar |
 | Sob o Orca, cada projeto precisa de `okeanos install --agent codex --project`; projeto esquecido roda sem hooks. Hooks de usuário e de projeto juntos rodariam duas vezes (o instalador avisa). | risco | Médio. | portabilidade |
-| Reserva em TMPDIR some no reboot: métricas e estado de sessão podem ficar curtos. | débito | Baixo: a `retro` avisa quando as contagens parecem curtas. | portabilidade |
+| Reserva em TMPDIR some no reboot: métricas e estado de sessão podem ficar curtos. | débito | Baixo: a `okeanos-retro` avisa quando as contagens parecem curtas. | portabilidade |
 | Hooks de usuário do Copilot não valem na nuvem, que só lê `.github/hooks/` do repositório; o instalador não escreve lá. | débito | Médio na nuvem. | portabilidade |
 | Avisos só para o usuário (escalada, handoff, tamanho) não aparecem no Copilot e no Cursor. | débito | Baixo: ficam em `okeanos metrics`. | portabilidade |
 | O Codex ignora `disable-model-invocation`: skills manuais podem ser escolhidas sozinhas. | débito | Baixo. | portabilidade |
