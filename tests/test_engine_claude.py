@@ -767,6 +767,8 @@ def test_agent_approving_through_an_interpreter_or_pty_is_denied(repo, command):
     "script -q /dev/null npm test",
     "env -u FOO okeanos doctor",
     "python3 -m pytest -q tests/test_user_cli.py -k aprovar",
+    "git commit -m 'rules: deny bin/okeanos under pty.spawn'",
+    "grep -rn 'pty.spawn' hooks/okeanos.py",
 ])
 def test_interpreters_and_ptys_without_the_okeanos_cli_are_allowed(repo, command):
     assert bash(repo, command) == (0, None), command

@@ -9,13 +9,14 @@ import hashlib
 import os
 import re
 import shlex
+import tempfile
 import time
 
 from . import approvals
 from .model import (ALLOW, ASK, BLOCK, DENY, EDIT, MULTI_EDIT, POST_TOOL, PRE_TOOL, PROMPT,
                     SESSION_START, SHELL, STOP, WRITE, Decision)
 from .packages import check_package, package_requests
-from .plumbing import git, load_checks, load_state, run, save_state, state_path, tail
+from .plumbing import fallback_dir, git, load_checks, load_state, run, save_state, state_path, tail
 
 MAX_BLOCKS = 3
 HANDOFF_MARK = "**Okeanos** · precisa de você"
@@ -300,15 +301,43 @@ HUMAN_ONLY = ("Okeanos: aprovações são do humano. Só o usuário roda `okeano
 APPROVAL_SUBCOMMANDS = ("aprovar", "revogar")
 # Tools that run a command line given as an argument or on stdin (including pseudo-terminal wrappers).
 COMMAND_RUNNERS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "eval", "xargs", "script", "unbuffer",
-                   "expect", "socat", "su", "runuser", "setsid", "nohup", "env", "timeout", "watch"}
+                   "expect", "socat", "su", "runuser", "setsid", "nohup", "env", "timeout", "watch",
+                   "tmux", "screen", "dtach", "abduco", "nice", "ionice", "stdbuf", "chrt", "sudo", "doas",
+                   "busybox", "parallel", "flock", "chroot", "nsenter", "unshare", "bwrap", "firejail", "at", "batch"}
+# Interpreters that run code given as an argument, a file or a heredoc.
+INTERPRETERS = re.compile(r"(python|pypy|node|nodejs|deno|bun|perl|ruby|php|lua|luajit|tclsh|wish|osascript|pwsh|"
+                          r"powershell|Rscript|julia|groovy|jshell|elixir|erl|swift|awk|gawk)[\d.]*")
+# Programs that give a command a pseudo-terminal (the TTY check in the CLI is what they defeat).
+PTY_PROGRAMS = {"script", "expect", "unbuffer", "tmux", "screen", "dtach", "abduco", "empty", "ptyrun"}
+PTY_CALL = re.compile(r"\bpty\.(spawn|fork)\b|\bopenpty\b|\bforkpty\b|\bposix_openpt\b|node-pty|\bpexpect\b|"
+                      r"\bptyprocess\b|\bIO::Pty\b|\bPTY\.spawn\b|\bExpect\.spawn\b")
 STATE_READERS = {"cat", "less", "more", "head", "tail", "ls", "jq", "grep", "rg", "wc", "stat", "file", "diff",
                  "git", "echo", "printf"}  # their writes go through redirects, which are checked above
 STATE_MENTION = re.compile(r"(^|[^A-Za-z0-9_])\.git/(okeanos|hooks)(/|\b)|okeanos/approvals\.json")
 # "okeanos [up to 3 args] aprovar": the CLI and its subcommand close together, not a project path
 # that happens to contain "okeanos" and the word "aprovar" somewhere later in the line.
 APPROVAL_TEXT = re.compile(r"okeanos[^\s;&|]*['\"]?\s+(\S+\s+){0,3}?['\"]?(aprovar|revogar)\b")
+# The okeanos CLI named in any quoting (bin/okeanos, 'okeanos', okeanos.py, okeanos_engine, user_cli),
+# but not a path that merely contains the word (okeanos-demo, test_user_cli.py).
+OKEANOS_CLI = re.compile(r"(?<![\w.-])(okeanos(\.py)?(?![\w.-])|okeanos_engine(?!\w)|user_cli(?!\w))")
+# What only the human may do with the CLI: approve, revoke, uninstall hooks.
+HUMAN_SUBCOMMAND = re.compile(r"(?<![\w-])(aprovar|revogar)(?![\w-])|--uninstall\b")
+# The variables the CLI reads to recognise an agent shell (user_cli.AGENT_SESSION_VARS, by prefix).
+AGENT_VAR = r"(CLAUDECODE|CLAUDE_CODE_\w+|CODEX_\w+|CURSOR_AGENT|CURSOR_\w+|COPILOT_\w+)"
+CLEARS_AGENT_ENV = re.compile(
+    r"(?<![\w-])env\s+(\S+\s+)*?(-u\s*|--unset[=\s]+)" + AGENT_VAR + r"\b"   # env -u CLAUDECODE
+    r"|(?<![\w-])env\s+(\S+\s+)*?(-i|--ignore-environment|-)(\s|$)"          # env -i: the whole environment
+    r"|\bunset\s+(-v\s+)?(\w+\s+)*?" + AGENT_VAR + r"\b"                     # unset CLAUDECODE
+    r"|(?<![\w$])" + AGENT_VAR + r"=(?=\s|$|''|\"\")")                       # CLAUDECODE= cmd
 # Commands that only produce text a runner might read on stdin (echo '...' | sh).
 TEXT_PRODUCERS = {"echo", "printf", "cat", "yes"}
+# Project hook files: once they hold Okeanos entries, only the human (or the installer) changes them.
+HOOK_FILE = re.compile(r"(^|/)(\.codex/hooks\.json|\.cursor/hooks\.json|\.cursor/rules/okeanos\.mdc|"
+                       r"\.github/hooks/[^/]+)$")
+HOOK_MENTION = re.compile(r"\.codex/hooks\.json|\.cursor/hooks\.json|\.cursor/rules/okeanos\.mdc|\.github/hooks\b")
+PROJECT_HOOK_FILES = (os.path.join(".codex", "hooks.json"), os.path.join(".cursor", "hooks.json"),
+                      os.path.join(".cursor", "rules", "okeanos.mdc"))
+MODE_CHANGERS = {"chmod", "chown", "chgrp", "chattr", "setfacl"}
 
 
 def okeanos_program(tok):
@@ -321,7 +350,7 @@ def runs_approval(toks, depth=0):
     for i, tok in enumerate(toks):
         if okeanos_program(tok):
             rest = [t.strip(")`'\"") for t in toks[i + 1:]]
-            if any(t in APPROVAL_SUBCOMMANDS for t in rest) or ("githooks" in rest and "--uninstall" in rest):
+            if any(t in APPROVAL_SUBCOMMANDS for t in rest) or "--uninstall" in rest:
                 return True
     plain = strip_env_prefix(toks)
     if depth < 3 and plain and os.path.basename(plain[0]) in COMMAND_RUNNERS:
@@ -332,14 +361,99 @@ def runs_approval(toks, depth=0):
     return False
 
 
+def program(toks):
+    plain = strip_env_prefix(toks)
+    return os.path.basename(plain[0]) if plain else ""
+
+
+def runs_code(name):
+    return name in COMMAND_RUNNERS or bool(INTERPRETERS.fullmatch(name))
+
+
+def human_cli_through_runner(segments):
+    """An interpreter or runner whose code mentions the okeanos CLI and a human-only subcommand.
+    Looks at the runner's own segment, a text producer piped into it and its heredoc body,
+    never at unrelated parts of the line (a project path with "okeanos" and "aprovar" far away)."""
+    for i, seg in enumerate(segments):
+        if not runs_code(program(tokens(seg))):
+            continue
+        scope = [seg]
+        if i > 0 and program(tokens(segments[i - 1])) in TEXT_PRODUCERS:
+            scope.append(segments[i - 1])
+        if "<<" in seg:
+            scope += segments[i + 1:]
+        text = "\n".join(scope)
+        if APPROVAL_TEXT.search(text) or (OKEANOS_CLI.search(text) and HUMAN_SUBCOMMAND.search(text)):
+            return True
+    return False
+
+
+def spawns_pty(segments):
+    for seg in segments:
+        toks = tokens(seg)
+        if program(toks) in STATE_READERS:
+            continue  # git commit -m '... pty.spawn ...' only talks about it
+        if PTY_CALL.search(seg):
+            return True
+        names = {os.path.basename(t) for t in toks}
+        if names & PTY_PROGRAMS or ("socat" in names and re.search(r"\bpty\b", seg)):
+            return True
+    return False
+
+
 def under(path, directory):
     return path == directory or path.startswith(directory + os.sep)
 
 
-def touches_okeanos_state(path, state_dir):
-    """Okeanos state and the git hooks dir: both belong to the human."""
+def state_dirs(root):
+    """Every place Okeanos keeps state: <git-common-dir>/okeanos, the TMPDIR fallback for the repo,
+    and the fallback root itself (<tmp>/okeanos, for any repo)."""
+    dirs = [approvals.state_dir(root), fallback_dir(root)] if root else []
+    tmp = tempfile.gettempdir()
+    dirs += [os.path.join(tmp, "okeanos"), os.path.join(os.path.realpath(tmp), "okeanos"), "/tmp/okeanos"]
+    return list(dict.fromkeys(os.path.normpath(d) for d in dirs if d))
+
+
+def mentions_state(seg, dirs):
+    if STATE_MENTION.search(seg):
+        return True
+    return any(re.search(re.escape(d) + r"(/|$|[\s'\"):;,\]])", seg) for d in dirs)
+
+
+def touches_okeanos_state(path, dirs):
+    """Okeanos state (git dir and TMPDIR fallback) and the git hooks dir: all belong to the human."""
     path = os.path.normpath(path)
-    return (state_dir and under(path, state_dir)) or bool(re.search(r"(^|/)\.git/(okeanos|hooks)(/|$)", path))
+    return any(under(path, d) for d in dirs) or bool(re.search(r"(^|/)\.git/(okeanos|hooks)(/|$)", path))
+
+
+def okeanos_hook_file(path):
+    """A project hook file (Codex, Cursor, Copilot) that exists and holds Okeanos entries."""
+    if not HOOK_FILE.search(path) or not os.path.isfile(path):
+        return False
+    try:
+        with open(path, errors="ignore") as f:
+            return "okeanos" in f.read(1_000_000).lower()
+    except OSError:
+        return False
+
+
+def project_hook_files(root):
+    """The repo's hook files that hold Okeanos entries."""
+    if not root:
+        return []
+    found = [os.path.join(root, rel) for rel in PROJECT_HOOK_FILES]
+    gh = os.path.join(root, ".github", "hooks")
+    try:
+        found += [os.path.join(gh, name) for name in sorted(os.listdir(gh))]
+    except OSError:
+        pass
+    return [p for p in found if okeanos_hook_file(p)]
+
+
+def touches_hook_file(path, root):
+    """path is an Okeanos hook file, or a directory holding one (rm -r .codex)."""
+    path = os.path.normpath(path)
+    return okeanos_hook_file(path) or any(under(p, path) for p in project_hook_files(root))
 
 
 def bypasses_git_hooks(toks):
@@ -358,12 +472,20 @@ def bypasses_git_hooks(toks):
     return False
 
 
+def mode_targets(toks):
+    """Paths chmod/chown/chattr... change (after the mode or owner argument)."""
+    if not toks or os.path.basename(toks[0]) not in MODE_CHANGERS:
+        return []
+    return [a for a in toks[1:] if not a.startswith("-")][1:]
+
+
 def self_approval(event, ctx):
-    """A deny reason if the shell command approves, revokes or writes Okeanos state; else None."""
+    """A deny reason if the shell command approves, revokes, uninstalls, or writes Okeanos state or hooks."""
     command = event.command
-    state_dir = approvals.state_dir(ctx.root) if ctx.root else None
+    dirs = state_dirs(ctx.root)
     cwd = event.cwd or ctx.root or os.getcwd()
     segments = split_segments(command)
+    hook_files = project_hook_files(ctx.root)
     for seg in segments:
         toks = tokens(seg)
         if runs_approval(toks):
@@ -371,26 +493,28 @@ def self_approval(event, ctx):
         if bypasses_git_hooks(toks):
             return HUMAN_ONLY.format(what="git hooks")
         plain = strip_env_prefix(toks)
-        for target in bash_write_targets(seg, plain):
-            full = os.path.expanduser(target)
-            if touches_okeanos_state(full if os.path.isabs(full) else os.path.join(cwd, full), state_dir):
+        for target in bash_write_targets(seg, plain) + mode_targets(plain):
+            full = os.path.expanduser(os.path.expandvars(target))
+            full = full if os.path.isabs(full) else os.path.join(cwd, full)
+            if touches_okeanos_state(full, dirs) or touches_hook_file(full, ctx.root):
                 return HUMAN_ONLY.format(what=target)
-        mentions = STATE_MENTION.search(seg) or (state_dir and state_dir in seg)
-        if mentions and plain and os.path.basename(plain[0]) not in STATE_READERS:
-            return HUMAN_ONLY.format(what="estado em .git/okeanos")
-    # A runner (sh -c, script, timeout...) executing the approval as text: look only at the runner's
-    # own segment and at a text producer feeding it, never at unrelated parts of the line.
-    for i, seg in enumerate(segments):
-        plain = strip_env_prefix(tokens(seg))
-        if not plain or os.path.basename(plain[0]) not in COMMAND_RUNNERS:
-            continue
-        scope = [seg]
-        if i > 0:
-            prev = strip_env_prefix(tokens(segments[i - 1]))
-            if prev and os.path.basename(prev[0]) in TEXT_PRODUCERS:
-                scope.append(segments[i - 1])
-        if any(APPROVAL_TEXT.search(s) for s in scope):
-            return HUMAN_ONLY.format(what="aprovação pelo agente")
+        reader = bool(plain) and os.path.basename(plain[0]) in STATE_READERS
+        if plain and not reader and mentions_state(seg, dirs):
+            return HUMAN_ONLY.format(what="estado do Okeanos")
+        if plain and not reader and hook_files and HOOK_MENTION.search(seg):
+            return HUMAN_ONLY.format(what="hooks do Okeanos no projeto")
+    # The CLI run where its own checks can't see the agent: as code inside an interpreter or runner,
+    # in a pseudo-terminal (defeats the TTY check), in a cleaned environment (defeats the
+    # agent-variable check).
+    if human_cli_through_runner(segments):
+        return HUMAN_ONLY.format(what="aprovação pelo agente")
+    if OKEANOS_CLI.search(command):
+        if spawns_pty(segments):
+            return HUMAN_ONLY.format(what="okeanos num pseudo-terminal")
+        if CLEARS_AGENT_ENV.search(command) or any(
+                INTERPRETERS.fullmatch(program(tokens(seg))) and re.search(r"\b" + AGENT_VAR + r"\b", seg)
+                for seg in segments):
+            return HUMAN_ONLY.format(what="okeanos sem as variáveis da sessão de agente")
     return None
 
 
@@ -499,10 +623,10 @@ def repo_file(root, path):
 def pre_edit(event, ctx):
     root = ctx.root
     if event.file_path:
-        state_dir = approvals.state_dir(root) if root else None
         base = event.cwd or root or os.getcwd()
         full = os.path.expanduser(event.file_path)
-        if touches_okeanos_state(full if os.path.isabs(full) else os.path.join(base, full), state_dir):
+        full = full if os.path.isabs(full) else os.path.join(base, full)
+        if touches_okeanos_state(full, state_dirs(root)) or touches_hook_file(full, root):
             return Decision(DENY, HUMAN_ONLY.format(what=event.file_path))
     if not root:
         return Decision()
