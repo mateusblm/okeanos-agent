@@ -85,6 +85,12 @@ for line in sys.stdin:
     with open(path("requests.jsonl"), "a") as f: f.write(json.dumps(msg) + "\n")
     method, i, params = msg.get("method"), msg.get("id"), msg.get("params") or {}
     if i is None: continue
+    bad = load("malformed.json", {}).get(method)  # method -> "no_hash" or a literal (malformed) result
+    if bad == "no_hash":
+        hs = [{k: v for k, v in h.items() if k != "currentHash"} for c in params["cwds"] for h in entries(c)]
+        reply(i, {"data": [{"cwd": params["cwds"][0], "hooks": hs}]}); continue
+    if bad is not None:
+        reply(i, bad); continue
     if method == "initialize":
         sys.stdout.write(json.dumps({"jsonrpc": "2.0", "method": "some/notification", "params": {}}) + "\n")
         reply(i, {"userAgent": "fake", "codexHome": codex_home})
@@ -493,7 +499,8 @@ def test_uninstall_still_works_when_codex_fails(home, fakebin, state):
 
 
 def test_each_hook_is_reported_once_even_if_codex_lists_its_file_twice(home, fakebin, state):
-    """With cwd = HOME the fake lists ~/.codex/hooks.json as user and as project layer, like an overlap could."""
+    """With cwd = HOME (trusted) the fake lists ~/.codex/hooks.json as user and as project layer, like an overlap could."""
+    trust_folder(state, home)
     code, out = run_tty(home, fakebin, state, "install", "--agent", "codex", answer="s")
     assert code == 0, out
     assert out.count("confiado: Stop") == 1
@@ -561,9 +568,9 @@ def test_trusted_folder_gets_no_folder_question(home, fakebin, state, project):
 def test_codex_confiar_project_sim_trusts_folder_and_hooks(home, fakebin, state, project):
     run(home, fakebin, state, "install", "--agent", "codex", "--project", cwd=project)
     assert requests(state) == []
-    code, out = run_tty(home, fakebin, state, "codex-confiar", "--project", "--sim", cwd=project)
+    code, out = run_tty(home, fakebin, state, "codex-confiar", "--project", "--sim", answer="s", cwd=project)
     assert code == 0, out
-    assert "[s/N]" not in out
+    assert FOLDER_QUESTION in out and out.count("[s/N]") == 1  # --sim answers only the hooks question
     folder, hooks = writes(state)
     assert folder["edits"] == [folder_edit(project)]
     assert set(hooks["edits"][0]["value"]) == okeanos_keys(project / ".codex" / "hooks.json")
@@ -616,3 +623,124 @@ def test_project_uninstall_keeps_folder_trust(home, fakebin, state, project):
     assert code == 0, out
     assert projects(state) == {os.path.realpath(project): {"trust_level": "trusted"}}
     assert "confiável" in out and "continua" in out
+
+
+# ---------------------------------------------------------------------------
+# uninstall forgets trust only when the Codex hooks were really removed
+# ---------------------------------------------------------------------------
+
+def test_failed_uninstall_keeps_the_okeanos_trust_entries(home, fakebin, state):
+    """`--agent codex,foo` exits 2 without touching anything: the trust entries stay with the hooks."""
+    hooks_file = home / ".codex" / "hooks.json"
+    run_tty(home, fakebin, state, "install", "--agent", "codex", answer="s")
+    before = hooks_state(state)
+    assert okeanos_keys(hooks_file) <= set(before)
+    code, out = run(home, fakebin, state, "install", "--agent", "codex,foo", "--uninstall")
+    assert code == 2, out
+    assert okeanos_keys(hooks_file) and hooks_state(state) == before
+    assert len(writes(state)) == 1
+
+
+def test_uninstall_aborted_for_codex_keeps_the_okeanos_trust_entries(home, fakebin, state):
+    """The Codex plan aborts (config.toml isn't valid TOML): its hooks stay, and so does their trust."""
+    hooks_file = home / ".codex" / "hooks.json"
+    run_tty(home, fakebin, state, "install", "--agent", "codex", answer="s")
+    before = hooks_state(state)
+    (home / ".codex" / "config.toml").write_text("this is [not toml\n")
+    code, out = run(home, fakebin, state, "install", "--agent", "codex", "--uninstall")
+    assert code != 0, out
+    assert okeanos_keys(hooks_file) and hooks_state(state) == before
+    assert len(writes(state)) == 1
+
+
+def test_uninstall_without_agent_removes_the_okeanos_trust_entries(home, fakebin, state):
+    run_tty(home, fakebin, state, "install", "--agent", "codex", answer="s")
+    assert hooks_state(state)
+    code, out = run(home, fakebin, state, "install", "--uninstall")
+    assert code == 0, out
+    assert hooks_state(state) == {}
+
+
+def test_install_without_agent_offers_codex_trust_when_codex_is_found(home, fakebin, state):
+    code, out = run_tty(home, fakebin, state, "install", answer="s")
+    assert code == 0, out
+    assert okeanos_keys(home / ".codex" / "hooks.json") <= set(hooks_state(state))
+
+
+def test_dry_run_neither_asks_nor_talks_to_codex(home, fakebin, state):
+    code, out = run_tty(home, fakebin, state, "install", "--agent", "codex", "--dry-run", answer="s")
+    assert code == 0, out
+    assert "[s/N]" not in out and requests(state) == []
+
+
+# ---------------------------------------------------------------------------
+# unexpected Codex responses fall back to /hooks without breaking the install
+# ---------------------------------------------------------------------------
+
+def malformed(state, method, result):
+    (state / "malformed.json").write_text(json.dumps({method: result}))
+
+
+@pytest.mark.parametrize("result", ["no_hash", [], {"data": "x"}, {"data": [{"hooks": 5}]}, "just a string"],
+                         ids=["missing-currentHash", "result-list", "data-not-list", "hooks-not-list", "result-str"])
+def test_malformed_hooks_list_falls_back_and_install_succeeds(home, fakebin, state, result):
+    malformed(state, "hooks/list", result)
+    code, out = run_tty(home, fakebin, state, "install", "--agent", "codex", answer="s")
+    assert code == 0, out
+    assert "Traceback" not in out
+    assert "/hooks" in out and "não consegui confiar" in out
+    assert hooks_state(state) == {}
+
+
+def test_malformed_response_in_codex_confiar_falls_back(home, fakebin, state):
+    run(home, fakebin, state, "install", "--agent", "codex")
+    malformed(state, "hooks/list", [])
+    code, out = run_tty(home, fakebin, state, "codex-confiar", "--sim")
+    assert code == 1, out
+    assert "Traceback" not in out and "/hooks" in out
+
+
+@pytest.mark.parametrize("result", [[], {"layers": 5}, {"config": "x", "layers": [{"name": "user"}]}],
+                         ids=["result-list", "layers-not-list", "config-not-dict"])
+def test_malformed_config_read_for_the_folder_falls_back(home, fakebin, state, project, result):
+    malformed(state, "config/read", result)
+    code, out = run_tty_answers(home, fakebin, state, "install", "--agent", "codex", "--project",
+                                answers=["s", "s"], cwd=project)
+    assert code == 0, out
+    assert "Traceback" not in out and "/hooks" in out
+    assert projects(state) == {}
+
+
+@pytest.mark.parametrize("result", [[], {"layers": [{"name": {"type": "user"}, "config": "x"}]},
+                                    {"layers": [{"name": {"type": "user"}, "config": {"hooks": {"state": 5}}}]}],
+                         ids=["result-list", "config-not-dict", "state-not-dict"])
+def test_malformed_config_read_on_uninstall_only_warns(home, fakebin, state, result):
+    run_tty(home, fakebin, state, "install", "--agent", "codex", answer="s")
+    malformed(state, "config/read", result)
+    code, out = run(home, fakebin, state, "install", "--agent", "codex", "--uninstall")
+    assert code == 0, out
+    assert "Traceback" not in out and "hooks.state" in out
+    assert not okeanos_keys(home / ".codex" / "hooks.json") if (home / ".codex" / "hooks.json").exists() else True
+
+
+@pytest.mark.parametrize("result", [[], {"data": 5}, {"data": [{"hooks": [{"key": 5, "command": None}]}]}],
+                         ids=["result-list", "data-not-list", "key-not-str"])
+def test_malformed_hooks_list_on_uninstall_only_warns(home, fakebin, state, result):
+    run_tty(home, fakebin, state, "install", "--agent", "codex", answer="s")
+    malformed(state, "hooks/list", result)
+    code, out = run(home, fakebin, state, "install", "--agent", "codex", "--uninstall")
+    assert code == 0, out
+    assert "Traceback" not in out
+    assert not (home / ".codex" / "hooks.json").exists() or not okeanos_keys(home / ".codex" / "hooks.json")
+
+
+# ---------------------------------------------------------------------------
+# --sim answers only the hooks question: trusting the folder is always asked
+# ---------------------------------------------------------------------------
+
+def test_codex_confiar_project_sim_with_no_to_the_folder_writes_nothing(home, fakebin, state, project):
+    run(home, fakebin, state, "install", "--agent", "codex", "--project", cwd=project)
+    code, out = run_tty(home, fakebin, state, "codex-confiar", "--project", "--sim", answer="n", cwd=project)
+    assert code == 0, out
+    assert FOLDER_QUESTION in out and out.count("[s/N]") == 1
+    assert writes(state) == [] and projects(state) == {} and hooks_state(state) == {}
