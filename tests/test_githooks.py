@@ -386,6 +386,19 @@ def test_on_done_runs_in_the_repo_root(installed, remote):
     assert code == 0, out
 
 
+def test_githook_messages_start_with_the_okeanos_prefix(installed, remote):
+    (installed / "src" / "config.py").write_text(f'KEY = "{AWS_KEY}"\n')
+    code, out = commit(installed)
+    assert code != 0 and "[Okeanos] pre-commit: possível segredo no commit" in out
+    (installed / "src" / "config.py").unlink()
+    code, out = push(installed)
+    assert code == 0 and "[Okeanos] pre-push: sem docs/agents/checks.json" in out
+    set_checks(installed, {"onDone": [{"name": "unit", "cmd": "exit 3"}]})
+    code, out = push(installed)
+    assert code != 0 and "[Okeanos] pre-push: a definição de pronto falhou" in out
+    assert "Okeanos (pre-" not in out
+
+
 def test_push_without_checks_json_hints_and_passes(installed, remote):
     code, out = push(installed)
     assert code == 0, out
@@ -408,6 +421,7 @@ def test_missing_engine_fails_open_with_a_warning(repo, tmp_path):
     code, out = commit(repo)
     assert code == 0, out
     assert "okeanos" in out.lower()
+    assert "[Okeanos] motor não encontrado" in out
 
 
 def test_broken_engine_fails_open_with_a_warning(repo, tmp_path):

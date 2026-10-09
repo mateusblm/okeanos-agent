@@ -98,3 +98,11 @@ def test_agents_md_markers_match_the_installer():
     build = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(build)
     assert (build.AGENTS_MD_START, build.AGENTS_MD_END) == (installer.BLOCK_START, installer.BLOCK_END)
+
+
+def test_process_tells_the_agent_to_use_the_okeanos_prefix():
+    """Route, phase and handoff lines all start with [Okeanos]; the old bold marker is gone."""
+    text = (REPO / "core" / "process.md").read_text()
+    for line in ("[Okeanos] rota: <rota> · ", "`[Okeanos] fase: <fase> (<skill>)`", "`[Okeanos] precisa de você`"):
+        assert line in text
+    assert "**Okeanos** ·" not in text
