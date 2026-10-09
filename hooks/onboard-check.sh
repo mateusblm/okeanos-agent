@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SessionStart: if the session is in a git repo with source files but no agent
 # context file (CLAUDE.md in Claude Code, AGENTS.md elsewhere) or no
-# docs/agents/checks.json, tell the agent to run the onboard skill first.
+# docs/agents/checks.json, tell the agent to run the okeanos-onboard skill first.
 #   onboard-check.sh [--agent claude|codex|copilot|cursor|...]   (default: claude)
 # The output is hookSpecificOutput.additionalContext (Claude Code, Codex), a top-level
 # additionalContext (Copilot's camelCase sessionStart) or additional_context (Cursor).
@@ -32,11 +32,11 @@ if [ "$agent" = claude ]; then
   { [ -f "$root/CLAUDE.md" ] || [ -f "$root/.claude/CLAUDE.md" ]; } && has_context=1
   [ "$has_context" = 1 ] && [ "$has_checks" = 1 ] && exit 0
   if [ "$has_context" = 1 ]; then
-    note="This repo has CLAUDE.md but no docs/agents/checks.json, so the Okeanos hooks have no commands to run. Before anything else, call the Skill tool with okeanos:onboard and do only its checks.json step."
+    note="This repo has CLAUDE.md but no docs/agents/checks.json, so the Okeanos hooks have no commands to run. Before anything else, call the Skill tool with okeanos:okeanos-onboard and do only its checks.json step."
   elif [ -f "$root/AGENTS.md" ]; then
-    note="This repo has AGENTS.md but no CLAUDE.md. Before anything else, call the Skill tool with okeanos:onboard."
+    note="This repo has AGENTS.md but no CLAUDE.md. Before anything else, call the Skill tool with okeanos:okeanos-onboard."
   else
-    note="This repo has no CLAUDE.md. Before anything else, call the Skill tool with okeanos:onboard."
+    note="This repo has no CLAUDE.md. Before anything else, call the Skill tool with okeanos:okeanos-onboard."
   fi
 else
   has_context=0
@@ -47,11 +47,11 @@ else
   fi
   [ "$has_context" = 1 ] && [ "$has_checks" = 1 ] && exit 0
   if [ "$has_context" = 1 ]; then
-    note="This repo has AGENTS.md but no docs/agents/checks.json, so the Okeanos hooks have no commands to run. Before anything else, use the \`onboard\` skill and do only its checks.json step."
+    note="This repo has AGENTS.md but no docs/agents/checks.json, so the Okeanos hooks have no commands to run. Before anything else, use the \`okeanos-onboard\` skill and do only its checks.json step."
   elif [ -f "$root/CLAUDE.md" ]; then
-    note="This repo has CLAUDE.md but no AGENTS.md, the context file this agent reads. Before anything else, use the \`onboard\` skill."
+    note="This repo has CLAUDE.md but no AGENTS.md, the context file this agent reads. Before anything else, use the \`okeanos-onboard\` skill."
   else
-    note="This repo has no AGENTS.md. Before anything else, use the \`onboard\` skill."
+    note="This repo has no AGENTS.md. Before anything else, use the \`okeanos-onboard\` skill."
   fi
 fi
 

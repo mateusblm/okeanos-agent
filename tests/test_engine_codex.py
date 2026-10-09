@@ -508,7 +508,7 @@ def onboard(root, agent):
 def test_onboard_check_asks_codex_for_agents_md(repo):
     out = json.loads(onboard(repo, "codex"))
     note = out["hookSpecificOutput"]["additionalContext"]
-    assert "AGENTS.md" in note and "`onboard` skill" in note and "Skill tool" not in note
+    assert "AGENTS.md" in note and "`okeanos-onboard` skill" in note and "Skill tool" not in note
 
 
 def test_onboard_check_accepts_agents_md_in_codex(repo):

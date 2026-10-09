@@ -199,7 +199,7 @@ def pre_commit(root):
 
 def pre_push(root):
     if not os.path.exists(os.path.join(root, "docs", "agents", "checks.json")):
-        say("[Okeanos] pre-push: sem docs/agents/checks.json, nada a rodar (a skill onboard cria o arquivo).")
+        say("[Okeanos] pre-push: sem docs/agents/checks.json, nada a rodar (a skill okeanos-onboard cria o arquivo).")
         return 0
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     failures = []

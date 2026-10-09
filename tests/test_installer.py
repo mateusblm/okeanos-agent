@@ -182,15 +182,30 @@ def test_user_content_is_preserved_and_backed_up(home, fakebin):
     assert not (home / ".local" / "bin" / "okeanos").exists()
 
 
+def test_reinstall_replaces_links_left_by_renamed_skills(home, fakebin):
+    # A 1.x install linked the skills under their old names; the clone still holds those folders' parent.
+    add_agent(fakebin, "codex")
+    skills = home / ".agents" / "skills"
+    skills.mkdir(parents=True)
+    for old in ("tdd", "to-spec", "grilling"):
+        (skills / old).symlink_to(ROOT / "skills" / "engineering" / old)
+    code, out = install(home, fakebin)
+    assert code == 0, out
+    assert not any(os.path.lexists(skills / old) for old in ("tdd", "to-spec", "grilling"))
+    assert (skills / "okeanos-tdd").is_symlink() and (skills / "okeanos-spec").is_symlink()
+    assert (skills / "okeanos-grill" / "SKILL.md").exists()
+    install(home, fakebin, "--uninstall")
+
+
 def test_skill_name_taken_by_the_user_is_left_alone(home, fakebin):
     add_agent(fakebin, "codex")
-    taken = home / ".agents" / "skills" / "tdd"
+    taken = home / ".agents" / "skills" / "okeanos-tdd"
     taken.mkdir(parents=True)
-    (taken / "SKILL.md").write_text("---\nname: tdd\ndescription: the user's own\n---\n")
+    (taken / "SKILL.md").write_text("---\nname: okeanos-tdd\ndescription: the user's own\n---\n")
     code, out = install(home, fakebin)
     assert code == 0, out
     assert not taken.is_symlink() and "the user's own" in (taken / "SKILL.md").read_text()
-    assert "tdd" in out
+    assert "okeanos-tdd" in out
     install(home, fakebin, "--uninstall")
     assert (taken / "SKILL.md").exists()
 

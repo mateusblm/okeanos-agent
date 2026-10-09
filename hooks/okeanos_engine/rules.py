@@ -1,7 +1,7 @@
 """The Okeanos rules. Input: a normalized Event. Output: a Decision.
 
 Nothing here knows which agent is calling. Per-repo commands live in
-docs/agents/checks.json (written by the onboard skill); state lives under
+docs/agents/checks.json (written by the okeanos-onboard skill); state lives under
 <git-common-dir>/okeanos/, never in the working tree.
 """
 

@@ -423,7 +423,7 @@ def onboard(root, agent="copilot"):
 def test_onboard_check_speaks_copilot(repo):
     out = json.loads(onboard(repo))
     assert set(out) == {"additionalContext"}
-    assert "AGENTS.md" in out["additionalContext"] and "`onboard` skill" in out["additionalContext"]
+    assert "AGENTS.md" in out["additionalContext"] and "`okeanos-onboard` skill" in out["additionalContext"]
 
 
 @pytest.mark.parametrize("context", ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"])

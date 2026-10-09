@@ -132,7 +132,7 @@ class Context:
         self.root = root
 
     def log(self, kind, detail=""):
-        """Append one event to <git-common-dir>/okeanos/metrics.jsonl for the retro skill."""
+        """Append one event to <git-common-dir>/okeanos/metrics.jsonl for the okeanos-retro skill."""
         try:
             path = metrics_path(self.root)
             if not path:

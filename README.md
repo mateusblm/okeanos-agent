@@ -53,7 +53,7 @@ Detalhes de cada agente, onde cada arquivo fica e o que cada um suporta: [docs/a
 
 ### Primeira sessão num projeto
 
-Num repositório sem arquivo de contexto (`CLAUDE.md` no Claude Code, `AGENTS.md` nos outros) ou sem `docs/agents/checks.json`, o agente roda a skill [`onboard`](skills/engineering/onboard/SKILL.md): lê o projeto, propõe um arquivo de contexto curto para você aprovar e grava os comandos que os hooks executam. Na primeira rota de engenharia, roda [`setup-okeanos`](skills/engineering/setup-okeanos/SKILL.md) para configurar o issue tracker (por padrão, markdown local em `.scratch/`).
+Num repositório sem arquivo de contexto (`CLAUDE.md` no Claude Code, `AGENTS.md` nos outros) ou sem `docs/agents/checks.json`, o agente roda a skill [`okeanos-onboard`](skills/engineering/okeanos-onboard/SKILL.md): lê o projeto, propõe um arquivo de contexto curto para você aprovar e grava os comandos que os hooks executam. Na primeira rota de engenharia, roda [`okeanos-setup`](skills/engineering/okeanos-setup/SKILL.md) para configurar o issue tracker (por padrão, markdown local em `.scratch/`).
 
 Para tratar um pedido sem o processo, escreva "sem okeanos" (ou "modo livre") na mensagem.
 
@@ -62,7 +62,7 @@ Para tratar um pedido sem o processo, escreva "sem okeanos" (ou "modo livre") na
 
 ### Código escrito antes de alinhar o que construir
 
-O agente começa a codar com uma ideia vaga do pedido. Nas rotas Feature e maiores, o Okeanos faz uma entrevista curta ([`grill-with-docs`](skills/engineering/grill-with-docs/SKILL.md)) e para no G1. O G1 abre com uma pré-checagem: critérios de aceitação com casos de erro, nenhuma dúvida em aberto, fora de escopo definido e modelo de ameaças quando a mudança toca um gatilho de segurança.
+O agente começa a codar com uma ideia vaga do pedido. Nas rotas Feature e maiores, o Okeanos faz uma entrevista curta ([`okeanos-grill-with-docs`](skills/engineering/okeanos-grill-with-docs/SKILL.md)) e para no G1. O G1 abre com uma pré-checagem: critérios de aceitação com casos de erro, nenhuma dúvida em aberto, fora de escopo definido e modelo de ameaças quando a mudança toca um gatilho de segurança.
 
 ### Testes reescritos para passar
 
@@ -90,7 +90,7 @@ O trabalho é planejado em tickets de 200 a 400 linhas. Acima de `maxChangedLine
 
 ### Documentação que não acompanha o código
 
-Antes do G2, o agente oferece a skill [`as-built`](skills/engineering/as-built/SKILL.md), que atualiza um documento de arquitetura arc42 com diagramas C4 e escreve um doc da feature a partir do que foi construído. Ela gasta bastante token, então só roda se você aceitar; o agente recomenda gerar quando a mudança altera a arquitetura e pular em ajustes internos. Exemplos: [`docs/architecture.md`](docs/architecture.md), a arquitetura do próprio Okeanos, e [`examples/calc/docs/architecture.md`](examples/calc/docs/architecture.md).
+Antes do G2, o agente oferece a skill [`okeanos-as-built`](skills/engineering/okeanos-as-built/SKILL.md), que atualiza um documento de arquitetura arc42 com diagramas C4 e escreve um doc da feature a partir do que foi construído. Ela gasta bastante token, então só roda se você aceitar; o agente recomenda gerar quando a mudança altera a arquitetura e pular em ajustes internos. Exemplo: [`docs/architecture.md`](docs/architecture.md), a arquitetura do próprio Okeanos.
 
 ## Como funciona
 
@@ -99,17 +99,17 @@ O processo vive em [`core/process.md`](core/process.md), neutro em relação ao 
 | Rota | Quando | Fluxo |
 | :- | :- | :- |
 | Direto | Pergunta ou mudança trivial | Responde ou faz, verifica. Sem gates. |
-| Bug | Algo quebrado | `tdd` com teste de regressão (ou `diagnosing-bugs` se for difícil), `code-review`, `as-built` se você quiser, G2 |
-| Feature | Cabe numa sessão | `grill-with-docs`, G1, `implement`, `as-built` se você quiser, G2 |
-| Feature grande | Várias sessões, caminho claro | `grill-with-docs`, `to-spec`, `to-tickets`, G1, execução na sessão ou AFK, `mutation-check`, `property-tests` se há lógica de domínio, `code-review`, `as-built` se você quiser, G2 |
-| Épico | Grande e nebuloso | `wayfinder` até o caminho clarear, depois segue como Feature grande |
-| Triagem | Issues ou pedidos de terceiros | `triage` |
+| Bug | Algo quebrado | `okeanos-tdd` com teste de regressão (ou `okeanos-diagnose` se for difícil), `okeanos-code-review`, `okeanos-as-built` se você quiser, G2 |
+| Feature | Cabe numa sessão | `okeanos-grill-with-docs`, G1, `okeanos-implement`, `okeanos-as-built` se você quiser, G2 |
+| Feature grande | Várias sessões, caminho claro | `okeanos-grill-with-docs`, `okeanos-spec`, `okeanos-tickets`, G1, execução na sessão ou AFK, `okeanos-mutation-check`, `okeanos-property-tests` se há lógica de domínio, `okeanos-code-review`, `okeanos-as-built` se você quiser, G2 |
+| Épico | Grande e nebuloso | `okeanos-wayfinder` até o caminho clarear, depois segue como Feature grande |
+| Triagem | Issues ou pedidos de terceiros | `okeanos-triage` |
 
-Mudanças que tocam autenticação, entrada externa, dados persistidos, segredos ou chamadas a terceiros passam por [`threat-model`](skills/engineering/threat-model/SKILL.md) no alinhamento. Lógica crítica passa por `mutation-check` em qualquer rota.
+Mudanças que tocam autenticação, entrada externa, dados persistidos, segredos ou chamadas a terceiros passam por [`okeanos-threat-model`](skills/engineering/okeanos-threat-model/SKILL.md) no alinhamento. Lógica crítica passa por `okeanos-mutation-check` em qualquer rota.
 
 **G1** fica antes de qualquer código de produção. Mostra a pré-checagem, o que será construído, as seams de teste e os tickets.
 
-**G2** fica antes de push, PR, merge na branch padrão ou deploy. Mostra o tamanho do diff, os achados do `code-review` por severidade, o estado de testes e typecheck, o link do doc do `as-built` (quando você pediu os docs) e um checklist de estabilidade (evidência de execução, changelog, rollback, observabilidade, entre outros, conforme o caso).
+**G2** fica antes de push, PR, merge na branch padrão ou deploy. Mostra o tamanho do diff, os achados do `okeanos-code-review` por severidade, o estado de testes e typecheck, o link do doc do `okeanos-as-built` (quando você pediu os docs) e um checklist de estabilidade (evidência de execução, changelog, rollback, observabilidade, entre outros, conforme o caso).
 
 Você pode pular etapas ("pula a entrevista", "só faz"). Os gates continuam valendo, a menos que você os dispense para aquele pedido.
 
@@ -132,18 +132,18 @@ Os hooks rodam em momentos fixos da sessão, em qualquer agente:
 
 | Momento | Comportamento |
 | :- | :- |
-| Início da sessão | Pede o `onboard` se faltar arquivo de contexto ou `checks.json`. Registra o commit inicial da sessão. |
+| Início da sessão | Pede o `okeanos-onboard` se faltar arquivo de contexto ou `checks.json`. Registra o commit inicial da sessão. |
 | Primeira mensagem | Lembra o agente de classificar e anunciar a rota. |
 | Antes de um comando no shell | Exige aprovação para push, PR e merge na branch padrão. Bloqueia `--no-verify`, force push e `rm -r` fora do repo. Bloqueia commit com segredo. Checa pacotes no registry. Exige aprovação para escritas do shell em testes commitados. |
 | Antes de uma edição | Exige aprovação para alterar, remover ou desligar asserções de testes commitados. |
 | Depois de uma edição | Roda os comandos `onEdit` no arquivo editado e devolve as falhas ao agente. |
 | Fim do turno | Roda os comandos `onDone`. Aponta testes apagados, asserções removidas, testes desligados e supressões novas de lint ou tipo. Avisa quando o diff passa de `maxChangedLines`. |
 
-Para valer também fora dos agentes, por exemplo em commits feitos à mão, `okeanos githooks` instala git hooks com as mesmas checagens, e no GitHub o `setup-okeanos` oferece um workflow de CI. Detalhes: [docs/protecoes.md](docs/protecoes.md).
+Para valer também fora dos agentes, por exemplo em commits feitos à mão, `okeanos githooks` instala git hooks com as mesmas checagens, e no GitHub o `okeanos-setup` oferece um workflow de CI. Detalhes: [docs/protecoes.md](docs/protecoes.md).
 
 ## Configuração
 
-Os comandos de cada projeto ficam em `docs/agents/checks.json`. O `onboard` cria o arquivo a partir do que o projeto já usa e mostra para você aprovar.
+Os comandos de cada projeto ficam em `docs/agents/checks.json`. O `okeanos-onboard` cria o arquivo a partir do que o projeto já usa e mostra para você aprovar.
 
 ```json
 {
@@ -161,9 +161,9 @@ Os comandos de cada projeto ficam em `docs/agents/checks.json`. O `onboard` cria
 
 Cada comando aceita `timeout` em segundos.
 
-Em projetos com algo para rodar (servidor, CLI, UI, worker), o `onboard` também propõe `docs/agents/verificar.md`: como subir, checar, exercitar o caminho principal, que evidência guardar e como limpar. O `implement` segue esse roteiro para produzir a evidência de execução do G2.
+Em projetos com algo para rodar (servidor, CLI, UI, worker), o `okeanos-onboard` também propõe `docs/agents/verificar.md`: como subir, checar, exercitar o caminho principal, que evidência guardar e como limpar. O `okeanos-implement` segue esse roteiro para produzir a evidência de execução do G2.
 
-A `retro` mantém `docs/agents/regras.md`: cada regra do projeto e o que a aplica (hook, check, lint, tipo, teste ou nada). Ela propõe o arquivo na primeira vez, para você aprovar, e trata como achado uma regra sem aplicação que voltou a ser violada.
+A `okeanos-retro` mantém `docs/agents/regras.md`: cada regra do projeto e o que a aplica (hook, check, lint, tipo, teste ou nada). Ela propõe o arquivo na primeira vez, para você aprovar, e trata como achado uma regra sem aplicação que voltou a ser violada.
 
 ### Linguagens
 
@@ -175,59 +175,53 @@ O agente chama a maioria das skills sozinho, conforme a rota. As marcadas como *
 
 ### Fluxo
 
-- **[setup-okeanos](skills/engineering/setup-okeanos/SKILL.md)**: configura o repo: issue tracker, labels de triagem, layout dos docs de domínio e, no GitHub, um workflow de CI.
-- **[onboard](skills/engineering/onboard/SKILL.md)**: lê um projeto sem contexto e escreve um arquivo de contexto curto, o `docs/agents/checks.json` e, se há app para rodar, o `docs/agents/verificar.md`.
-- **[grill-with-docs](skills/engineering/grill-with-docs/SKILL.md)**: entrevista para afiar um plano, criando ADRs e glossário no caminho.
-- **[to-spec](skills/engineering/to-spec/SKILL.md)**: transforma a conversa numa spec e publica no tracker.
-- **[to-tickets](skills/engineering/to-tickets/SKILL.md)**: quebra um plano ou spec em tickets tracer-bullet com dependências explícitas.
-- **[implement](skills/engineering/implement/SKILL.md)**: implementa um trabalho a partir de uma spec ou de tickets.
-- **[implement-spec](skills/engineering/implement-spec/SKILL.md)**: implementa o resultado de `to-spec` e `to-tickets`, com subagentes em paralelo.
-- **[afk](skills/engineering/afk/SKILL.md)**: implementa os tickets em sandboxes Docker paralelas enquanto você está fora.
-- **[tdd](skills/engineering/tdd/SKILL.md)**: desenvolvimento guiado por testes, red-green-refactor.
-- **[diagnosing-bugs](skills/engineering/diagnosing-bugs/SKILL.md)**: loop de diagnóstico para bugs difíceis. Lentidão vai para o `performance`.
-- **[performance](skills/engineering/performance/SKILL.md)**: medir, identificar, corrigir, verificar e proteger. Muda uma coisa por vez, reverte o ganho que não passa do ruído e nunca dá número sem medição.
-- **[mutation-check](skills/engineering/mutation-check/SKILL.md)**: teste de mutação restrito às linhas alteradas. Cada mutante sobrevivente vira um teste.
-- **[property-tests](skills/engineering/property-tests/SKILL.md)**: testes baseados em propriedades derivados dos invariantes da spec, escritos por um agente que vê só a spec e a interface pública.
-- **[threat-model](skills/engineering/threat-model/SKILL.md)**: modelo de ameaças em até 15 linhas, com STRIDE. Cada mitigação vira critério de aceitação testável.
-- **[code-review](skills/engineering/code-review/SKILL.md)**: revisão em dois eixos, padrões do repo e aderência à spec, em subagentes paralelos.
-- **[as-built](skills/engineering/as-built/SKILL.md)**: documenta o que foi construído: arc42 com diagramas C4 e um doc por feature.
-- **[pr](skills/engineering/pr/SKILL.md)**: escreve o corpo de um PR.
-- **[wayfinder](skills/engineering/wayfinder/SKILL.md)**: planeja trabalho grande demais para uma sessão como um mapa de tickets de decisão.
-- **[triage](skills/engineering/triage/SKILL.md)**: move issues e PRs externos por uma máquina de estados de triagem.
-- **[retro](skills/engineering/retro/SKILL.md)**: retrospectiva de uma sessão a partir das métricas dos hooks.
+- **[okeanos-setup](skills/engineering/okeanos-setup/SKILL.md)**: configura o repo: issue tracker, labels de triagem, layout dos docs de domínio e, no GitHub, um workflow de CI.
+- **[okeanos-onboard](skills/engineering/okeanos-onboard/SKILL.md)**: lê um projeto sem contexto e escreve um arquivo de contexto curto, o `docs/agents/checks.json` e, se há app para rodar, o `docs/agents/verificar.md`.
+- **[okeanos-grill-with-docs](skills/engineering/okeanos-grill-with-docs/SKILL.md)**: entrevista para afiar um plano, criando ADRs e glossário no caminho.
+- **[okeanos-spec](skills/engineering/okeanos-spec/SKILL.md)**: transforma a conversa numa spec e publica no tracker.
+- **[okeanos-tickets](skills/engineering/okeanos-tickets/SKILL.md)**: quebra um plano ou spec em tickets tracer-bullet com dependências explícitas.
+- **[okeanos-implement](skills/engineering/okeanos-implement/SKILL.md)**: implementa um trabalho a partir de uma spec ou de tickets.
+- **[okeanos-implement-spec](skills/engineering/okeanos-implement-spec/SKILL.md)**: implementa o resultado de `okeanos-spec` e `okeanos-tickets`, com subagentes em paralelo.
+- **[okeanos-afk](skills/engineering/okeanos-afk/SKILL.md)**: implementa os tickets em sandboxes Docker paralelas enquanto você está fora.
+- **[okeanos-tdd](skills/engineering/okeanos-tdd/SKILL.md)**: desenvolvimento guiado por testes, red-green-refactor.
+- **[okeanos-diagnose](skills/engineering/okeanos-diagnose/SKILL.md)**: loop de diagnóstico para bugs difíceis. Lentidão vai para o `okeanos-performance`.
+- **[okeanos-performance](skills/engineering/okeanos-performance/SKILL.md)**: medir, identificar, corrigir, verificar e proteger. Muda uma coisa por vez, reverte o ganho que não passa do ruído e nunca dá número sem medição.
+- **[okeanos-mutation-check](skills/engineering/okeanos-mutation-check/SKILL.md)**: teste de mutação restrito às linhas alteradas. Cada mutante sobrevivente vira um teste.
+- **[okeanos-property-tests](skills/engineering/okeanos-property-tests/SKILL.md)**: testes baseados em propriedades derivados dos invariantes da spec, escritos por um agente que vê só a spec e a interface pública.
+- **[okeanos-threat-model](skills/engineering/okeanos-threat-model/SKILL.md)**: modelo de ameaças em até 15 linhas, com STRIDE. Cada mitigação vira critério de aceitação testável.
+- **[okeanos-code-review](skills/engineering/okeanos-code-review/SKILL.md)**: revisão em dois eixos, padrões do repo e aderência à spec, em subagentes paralelos.
+- **[okeanos-as-built](skills/engineering/okeanos-as-built/SKILL.md)**: documenta o que foi construído: arc42 com diagramas C4 e um doc por feature.
+- **[okeanos-pr](skills/engineering/okeanos-pr/SKILL.md)**: escreve o corpo de um PR.
+- **[okeanos-wayfinder](skills/engineering/okeanos-wayfinder/SKILL.md)**: planeja trabalho grande demais para uma sessão como um mapa de tickets de decisão.
+- **[okeanos-triage](skills/engineering/okeanos-triage/SKILL.md)**: move issues e PRs externos por uma máquina de estados de triagem.
+- **[okeanos-retro](skills/engineering/okeanos-retro/SKILL.md)**: retrospectiva de uma sessão a partir das métricas dos hooks.
 
 ### Apoio
 
-- **[prototype](skills/engineering/prototype/SKILL.md)**: protótipo descartável para responder uma pergunta de design.
-- **[research](skills/engineering/research/SKILL.md)**: pesquisa em fontes primárias, salva como Markdown no repo.
-- **[wizard](skills/engineering/wizard/SKILL.md)**: gera um wizard em bash para passos que só uma pessoa pode fazer (credenciais, dashboards, provisionamento).
-- **[domain-modeling](skills/engineering/domain-modeling/SKILL.md)**: constrói o modelo de domínio do projeto: `GLOSSARY.md` e ADRs.
-- **[frontend-ui](skills/engineering/frontend-ui/SKILL.md)**: constrói UI de produção com os tokens do projeto, todos os estados (loading, vazio, erro, sem permissão), acessibilidade e breakpoints, conferida no navegador com perfil isolado.
-- **[codebase-design](skills/engineering/codebase-design/SKILL.md)**: vocabulário para desenhar módulos profundos e decidir onde ficam as seams.
-- **[grilling](skills/productivity/grilling/SKILL.md)**: entrevista sobre um plano, decisão ou ideia. Base das outras skills de entrevista.
-- **[grill-me](skills/productivity/grill-me/SKILL.md)**: entrevista para afiar um plano, sem gerar docs.
-- **[handoff](skills/productivity/handoff/SKILL.md)**: compacta a conversa num documento para outro agente continuar.
-- **[writing-for-agents](skills/productivity/writing-for-agents/SKILL.md)**: como escrever skills, `CLAUDE.md` e `AGENTS.md`.
+- **[okeanos-prototype](skills/engineering/okeanos-prototype/SKILL.md)**: protótipo descartável para responder uma pergunta de design.
+- **[okeanos-research](skills/engineering/okeanos-research/SKILL.md)**: pesquisa em fontes primárias, salva como Markdown no repo.
+- **[okeanos-wizard](skills/engineering/okeanos-wizard/SKILL.md)**: gera um wizard em bash para passos que só uma pessoa pode fazer (credenciais, dashboards, provisionamento).
+- **[okeanos-domain-modeling](skills/engineering/okeanos-domain-modeling/SKILL.md)**: constrói o modelo de domínio do projeto: `GLOSSARY.md` e ADRs.
+- **[okeanos-frontend-ui](skills/engineering/okeanos-frontend-ui/SKILL.md)**: constrói UI de produção com os tokens do projeto, todos os estados (loading, vazio, erro, sem permissão), acessibilidade e breakpoints, conferida no navegador com perfil isolado.
+- **[okeanos-codebase-design](skills/engineering/okeanos-codebase-design/SKILL.md)**: vocabulário para desenhar módulos profundos e decidir onde ficam as seams.
+- **[okeanos-grill](skills/productivity/okeanos-grill/SKILL.md)**: entrevista implacável sobre um plano, decisão ou ideia ("grill me"), sem gerar docs. Base das outras skills de entrevista.
+- **[okeanos-writing-for-agents](skills/productivity/okeanos-writing-for-agents/SKILL.md)**: como escrever skills, `CLAUDE.md` e `AGENTS.md`.
 
-### Manuais
+### Manual
 
-- **[ask-okeanos](skills/engineering/ask-okeanos/SKILL.md)**: pergunta qual skill ou rota serve para a sua situação.
-- **[improve-codebase-architecture](skills/engineering/improve-codebase-architecture/SKILL.md)**: procura oportunidades de aprofundar módulos, gera um relatório HTML e entrevista sobre a que você escolher.
-- **[teach](skills/productivity/teach/SKILL.md)**: ensina um conceito ou habilidade dentro do workspace.
-- **[to-questionnaire](skills/productivity/to-questionnaire/SKILL.md)**: transforma uma decisão que você não consegue fechar sozinho num questionário para outra pessoa.
-- **[wait-what](skills/productivity/wait-what/SKILL.md)**: pede ao agente que reformule a última mensagem que não ficou clara.
+- **[okeanos-ask](skills/engineering/okeanos-ask/SKILL.md)**: pergunta qual skill ou rota serve para a sua situação.
 
-No Claude Code, as manuais têm `disable-model-invocation`. O Codex não lê esse campo e pode escolhê-las sozinho.
+No Claude Code, ela tem `disable-model-invocation`. O Codex não lê esse campo e pode escolhê-la sozinho.
 
 ## Modo AFK
 
-Na Feature grande, o G1 pergunta como executar os tickets. No modo AFK, a skill [`afk`](skills/engineering/afk/SKILL.md) usa o Sandcastle para rodar cada ticket numa sandbox Docker própria, com um implementador e um revisor, e junta as branches numa branch de integração. Toda execução começa com uma rodada piloto. Para features críticas, dá para ligar testes de aceitação ocultos, escritos por outro agente a partir dos critérios.
+Na Feature grande, o G1 pergunta como executar os tickets. No modo AFK, a skill [`okeanos-afk`](skills/engineering/okeanos-afk/SKILL.md) usa o Sandcastle para rodar cada ticket numa sandbox Docker própria, com um implementador e um revisor, e junta as branches numa branch de integração. Toda execução começa com uma rodada piloto. Para features críticas, dá para ligar testes de aceitação ocultos, escritos por outro agente a partir dos critérios.
 
 O agente das sandboxes é escolhido na configuração (`AGENT` em `.sandcastle/main.mts`): Claude Code (padrão), Codex, Copilot ou Cursor. Outro valor falha na partida com a lista dos suportados. Requisitos: Node, Docker e a credencial do agente escolhido (`claude setup-token`, `OPENAI_API_KEY`, `GITHUB_TOKEN` ou `CURSOR_API_KEY`), que você mesmo cola em `.sandcastle/.env`. O agente não lê nem grava a credencial. O AFK só é usado quando você pede.
 
 ## Métricas e manutenção
 
-A skill [`retro`](skills/engineering/retro/SKILL.md) usa `.git/okeanos/metrics.jsonl` (e a reserva em `<TMPDIR>/okeanos/`) e termina em 1 a 3 mudanças concretas no processo. O agente oferece a retro depois de eventos como um G2 recusado ou uma definição de pronto escalada para você. Para ver o resumo de um repo, por tipo de evento e por agente:
+A skill [`okeanos-retro`](skills/engineering/okeanos-retro/SKILL.md) usa `.git/okeanos/metrics.jsonl` (e a reserva em `<TMPDIR>/okeanos/`) e termina em 1 a 3 mudanças concretas no processo. O agente oferece a retro depois de eventos como um G2 recusado ou uma definição de pronto escalada para você. Para ver o resumo de um repo, por tipo de evento e por agente:
 
 ```bash
 okeanos metrics 30   # últimos 30 dias
@@ -252,7 +246,7 @@ Cada etapa do processo é uma suposição sobre o que o modelo ainda não faz be
 | [`hooks/okeanos_engine/`](hooks/okeanos_engine/) | o motor: regras neutras em `rules.py`, um dialeto por agente em `dialects/`, aprovações, git hooks e o instalador (`installer.py`) |
 | [`bin/okeanos`](bin/okeanos) | a CLI: `install`, `codex-confiar`, `doctor`, `aprovar`, `aprovacoes`, `revogar`, `githooks`, `metrics` |
 | [`tests/`](tests/) | testes do motor, dos dialetos, do instalador, dos git hooks e do build |
-| [`docs/architecture.md`](docs/architecture.md) | a arquitetura (arc42 com diagramas C4) e, em [`docs/features/`](docs/features/), um doc por feature |
+| [`docs/architecture.md`](docs/architecture.md) | a arquitetura (arc42 com diagramas C4) |
 
 Para mudar o processo, edite `core/process.md` e rode `python3 scripts/build.py`; os arquivos gerados nunca se editam à mão. Para suportar outro agente, escreva um dialeto em `hooks/okeanos_engine/dialects/` e o plano dele no instalador; as regras não mudam. Rode os testes da raiz:
 

@@ -362,7 +362,7 @@ def onboard(root, agent, payload):
 def test_onboard_check_answers_cursor_with_additional_context(repo):
     out = json.loads(onboard(repo, "cursor", {"workspace_roots": [str(repo)], "session_id": "c1"}))
     assert set(out) == {"additional_context"}
-    assert "AGENTS.md" in out["additional_context"] and "`onboard` skill" in out["additional_context"]
+    assert "AGENTS.md" in out["additional_context"] and "`okeanos-onboard` skill" in out["additional_context"]
 
 
 def test_onboard_check_accepts_agents_md_in_cursor(repo):

@@ -1,4 +1,4 @@
-"""The AFK runner (skills/engineering/afk/scaffold/main.mts) against the real Sandcastle.
+"""The AFK runner (skills/engineering/okeanos-afk/scaffold/main.mts) against the real Sandcastle.
 
 Installs the scaffold's dependencies once into a cached temp dir, then:
 - typechecks main.mts with strict TypeScript;
@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-SCAFFOLD = REPO / "skills" / "engineering" / "afk" / "scaffold"
+SCAFFOLD = REPO / "skills" / "engineering" / "okeanos-afk" / "scaffold"
 SUPPORTED = ["claude", "codex", "copilot", "cursor"]
 
 pytestmark = [
