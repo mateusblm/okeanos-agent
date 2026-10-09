@@ -153,7 +153,8 @@ def cmd_githook(args):
 
 
 def cmd_install(args):
-    return installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run, project=args.project)
+    return installer.run(args.agent, uninstall=args.uninstall, dry_run=args.dry_run, project=args.project,
+                         codex_hooks=args.codex_hooks)
 
 
 def cmd_doctor(args):
@@ -209,7 +210,8 @@ def parser():
     i = sub.add_parser("install", help="instala o Okeanos nos agentes encontrados (Claude Code, Codex, Copilot, Cursor)",
                        description="Detecta os agentes e instala em cada um: Claude Code pelo marketplace; "
                                    "Codex com skills em ~/.agents/skills, o bloco do processo no AGENTS.md global e os "
-                                   "hooks no hooks.json do usuário; Copilot com as mesmas skills, o bloco em "
+                                   "hooks no hooks.json do usuário (ou no config.toml, se o Orca gerencia o "
+                                   "hooks.json); Copilot com as mesmas skills, o bloco em "
                                    "~/.copilot/copilot-instructions.md e os hooks em ~/.copilot/hooks/okeanos.json; "
                                    "Cursor com as mesmas skills e os hooks em ~/.cursor/hooks.json (as regras do "
                                    "Cursor vão por projeto, com --project). "
@@ -220,6 +222,9 @@ def parser():
     i.add_argument("--project", action="store_true",
                    help="com --agent cursor: escreve o processo como regra do Cursor (.cursor/rules/okeanos.mdc) "
                         "no repositório atual")
+    i.add_argument("--codex-hooks", choices=("toml", "json"),
+                   help="onde ficam os hooks do Codex: json (hooks.json) ou toml ([hooks] no config.toml). Sem a "
+                        "opção, toml quando outra ferramenta (Orca) gerencia o hooks.json, senão json")
     i.add_argument("--uninstall", action="store_true", help="remove só o que o Okeanos instalou")
     i.add_argument("--dry-run", action="store_true", help="mostra o que faria, sem mudar nada")
     i.set_defaults(func=cmd_install)

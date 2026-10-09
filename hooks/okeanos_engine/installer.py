@@ -13,6 +13,9 @@ agent CLIs the installer runs. Codex's directory is $CODEX_HOME or ~/.codex, Cop
 is $COPILOT_HOME or ~/.copilot (both variables are ignored when OKEANOS_HOME_DIR is set).
 Codex, Copilot and Cursor share the skill links in ~/.agents/skills: uninstalling one agent
 keeps them while another still has Okeanos.
+Codex hooks go to hooks.json, or, when another tool manages that file (Orca rewrites it and drops our
+entries) or with --codex-hooks toml, to [hooks] tables in config.toml between `# okeanos:start` and
+`# okeanos:end`, appended at the end; the rest of config.toml is never rewritten.
 Claude Code is installed through its own marketplace commands; its settings are
 never touched. Cursor gets hooks in ~/.cursor/hooks.json; it has no file for global
 rules, so `--project` writes the process as a project rule (.cursor/rules/okeanos.mdc)
@@ -309,21 +312,141 @@ def shared_skill_actions(agent, root, home, uninstall, notes):
     return skill_actions(root, shared_skills_dir(home), uninstall, notes)
 
 
-def plan_codex(root, home, uninstall):
+TOML_START = "# okeanos:start"
+TOML_END = "# okeanos:end"
+TOML_BLOCK_RE = re.compile(r"(?m)^" + re.escape(TOML_START) + r"[^\n]*\n(.*?)^" + re.escape(TOML_END) + r"[^\n]*(?:\n|\Z)", re.S)
+TOML_HEADER_RE = re.compile(r"(?m)^[ \t]*\[")
+ORCA_MARK = ".orca/agent-hooks"
+
+
+def toml_string(value):
+    out = []
+    for ch in value:
+        if ch in '"\\':
+            out.append("\\" + ch)
+        elif ord(ch) < 0x20 or ord(ch) == 0x7F:
+            out.append(f"\\u{ord(ch):04X}")
+        else:
+            out.append(ch)
+    return '"' + "".join(out) + '"'
+
+
+def codex_hooks_toml(root):
+    """The Okeanos hooks as config.toml tables, between the marker comments."""
+    lines = [TOML_START, "# escrito por okeanos install; okeanos install --uninstall remove este bloco"]
+    for event, groups in codex_hooks(root).items():
+        for g in groups:
+            lines += ["", f"[[hooks.{event}]]"]
+            if "matcher" in g:
+                lines.append(f"matcher = {toml_string(g['matcher'])}")
+            for h in g["hooks"]:
+                lines += ["", f"[[hooks.{event}.hooks]]"]
+                lines += [f"type = {toml_string(h['type'])}", f"command = {toml_string(h['command'])}",
+                          f"timeout = {int(h['timeout'])}"]
+                if "statusMessage" in h:
+                    lines.append(f"statusMessage = {toml_string(h['statusMessage'])}")
+    return "\n".join(lines) + "\n" + TOML_END + "\n"
+
+
+def foreign_tables(inside):
+    """Tables Codex itself put inside the Okeanos block (its [hooks.state."..."] trust records): kept on rewrite."""
+    starts = [m.start() for m in TOML_HEADER_RE.finditer(inside)] + [len(inside)]
+    kept = []
+    for a, b in zip(starts, starts[1:]):
+        section = inside[a:b]
+        if section.lstrip().startswith("[hooks.state"):
+            kept.append(section.rstrip("\n") + "\n")
+    return "".join(kept)
+
+
+def toml_without_block(text):
+    """config.toml without the Okeanos block (and the blank line put before it), keeping Codex's trust records."""
+    m = TOML_BLOCK_RE.search(text)
+    if not m:
+        return text
+    before, after, kept = text[:m.start()], text[m.end():], foreign_tables(m.group(1))
+    if before.endswith("\n\n"):
+        before = before[:-1]
+    if kept:
+        before = (before + "\n" if before and not before.endswith("\n\n") else before) + kept
+    return before + after
+
+
+def toml_with_block(text, block):
+    rest = toml_without_block(text)
+    if rest and not rest.endswith("\n"):
+        rest += "\n"
+    return rest + ("\n" if rest else "") + block
+
+
+def parse_toml(path, text, what):
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as e:
+        raise Abort(f"{path}: {what} ({e}). Nada foi alterado.")
+
+
+def codex_toml_actions(root, path, uninstall):
+    """The Okeanos [hooks] tables appended to config.toml between marker comments; the rest of the file is kept
+    byte for byte. The result must parse before anything is written."""
+    text = read(path) or ""
+    new = toml_without_block(text) if uninstall else toml_with_block(text, codex_hooks_toml(root))
+    if new == text:
+        return []
+    if tomllib is None:
+        raise Abort(f"escrever hooks em {path} precisa do Python 3.11+ (tomllib). Nada foi alterado.")
+    config = parse_toml(path, new, "ficaria TOML inválido com o bloco do Okeanos: o arquivo já define [hooks] "
+                        "de um jeito que não aceita [[hooks.<evento>]] no fim (ex.: listas inline em [hooks]); "
+                        "passe esses hooks para o formato [[hooks.<evento>]] ou use --codex-hooks json")
+    if not uninstall and not toml_okeanos_installed(config):
+        raise Abort(f"{path}: os hooks do Okeanos não ficariam legíveis depois do bloco (confira as tabelas [hooks]). "
+                    "Nada foi alterado.")
+    if uninstall and not new.strip():
+        return [Remove(path, "remove config.toml (só tinha o bloco do Okeanos)")]
+    return [Write(path, new, "remove hooks (config.toml)" if uninstall else "hooks (config.toml)")]
+
+
+def toml_okeanos_installed(config):
+    hooks = config.get("hooks") if isinstance(config, dict) else None
+    owned = owned_command("codex")
+    return isinstance(hooks, dict) and any(
+        isinstance(groups, list) and any(
+            isinstance(g, dict) and isinstance(g.get("hooks"), list) and any(
+                isinstance(h, dict) and owned.search(str(h.get("command", ""))) for h in g["hooks"])
+            for g in groups)
+        for groups in hooks.values())
+
+
+def codex_toml_has_block(cdir):
+    return bool(TOML_BLOCK_RE.search(read(os.path.join(cdir, "config.toml")) or ""))
+
+
+def managed_by_orca(data):
+    return any(isinstance(h, dict) and ORCA_MARK in str(h.get("command", ""))
+               for groups in data.get("hooks", {}).values() for g in groups for h in g.get("hooks", []))
+
+
+def plan_codex(root, home, uninstall, hooks_mode=None):
+    """hooks_mode: "json" (hooks.json), "toml" ([hooks] tables in config.toml) or None to pick: toml when another
+    tool (Orca) manages hooks.json, since it rewrites that file and drops our entries."""
     notes, actions = [], []
     cdir = codex_dir(home)
-    check_codex_toml(os.path.join(cdir, "config.toml"), notes)
+    toml_path = os.path.join(cdir, "config.toml")
+    check_codex_toml(toml_path, notes)
 
     hooks_path = os.path.join(cdir, "hooks.json")
     current = load_hooks_json(hooks_path)
+    orca = managed_by_orca(current)
+    mode = hooks_mode or ("toml" if orca else "json")
     new = strip_owned(current, "codex")
-    if not uninstall:
+    if not uninstall and mode == "json":
         new.setdefault("hooks", {})
         for event, groups in codex_hooks(root).items():
             new["hooks"].setdefault(event, []).extend(groups)
     if new != current and (current or not uninstall):
         actions.append(Write(hooks_path, json.dumps(new, indent=2, ensure_ascii=False) + "\n",
-                             "remove hooks" if uninstall else "hooks"))
+                             "hooks" if mode == "json" and not uninstall else "remove hooks"))
+    actions += codex_toml_actions(root, toml_path, uninstall or mode == "json")
 
     actions += block_actions(root, os.path.join(cdir, "AGENTS.md"), uninstall)
     if not uninstall:
@@ -333,7 +456,14 @@ def plan_codex(root, home, uninstall):
                          "AGENTS.md global; o processo do Okeanos não será carregado enquanto ele existir.")
 
     actions += shared_skill_actions("codex", root, home, uninstall, notes)
-    if not uninstall and any(isinstance(a, Write) and a.path == hooks_path for a in actions):
+    if not uninstall and mode == "toml":
+        why = (f"o {hooks_path} é gerenciado pelo Orca (hooks em {ORCA_MARK}), que reescreve o arquivo"
+               if orca and not hooks_mode else "--codex-hooks toml")
+        notes.append(f"hooks em {toml_path} ([hooks]), não no hooks.json: {why}. "
+                     "O Codex junta os hooks dos dois arquivos (e avisa disso ao iniciar).")
+    hooks_written = any(isinstance(a, Write) and a.path in (hooks_path, toml_path) and not a.what.startswith("remove")
+                        for a in actions)
+    if not uninstall and hooks_written:
         notes.append("próximo passo: abra o Codex e rode /hooks para revisar e confiar nos hooks do Okeanos; "
                      "o Codex não roda hooks novos ou alterados antes disso.")
     return actions, notes
@@ -346,7 +476,7 @@ def codex_installed(root, home):
     except Abort:
         return True  # can't tell: keep what it may use
     md = read(os.path.join(cdir, "AGENTS.md")) or ""
-    return BLOCK_START in md or strip_owned(hooks, "codex") != hooks
+    return BLOCK_START in md or strip_owned(hooks, "codex") != hooks or codex_toml_has_block(cdir)
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +756,8 @@ def status(root=None, home=None):
                 pieces.append("hooks")
         except Abort:
             pieces.append("hooks ilegíveis")
+        if agent == "codex" and codex_toml_has_block(codex_dir(home)):
+            pieces.append("hooks em config.toml")
         if md_path and BLOCK_START in (read(md_path) or ""):
             pieces.append("instruções")
         if pieces and linked:
@@ -692,7 +824,7 @@ def run_project(names, root, uninstall, dry_run, out):
     return 0 if report("cursor (projeto)", actions, notes, dry_run, prefix, out) else 1
 
 
-def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False):
+def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False, codex_hooks=None):
     root, home = plugin_root(), home_dir()
     names, bad = requested_agents(agents_arg)
     if bad:
@@ -720,7 +852,8 @@ def run(agents_arg, uninstall=False, dry_run=False, out=print, project=False):
     failed, done = False, False
     for agent in names:
         try:
-            actions, notes = PLANNERS[agent](root, home, uninstall)
+            extra = {"hooks_mode": codex_hooks} if agent == "codex" else {}
+            actions, notes = PLANNERS[agent](root, home, uninstall, **extra)
         except Abort as e:
             out(f"{agent}: ERRO, nada instalado: {e}")
             failed = True
