@@ -41,8 +41,23 @@ if os.path.exists(path("fail_start")):
 codex_home = os.environ.get("CODEX_HOME") or os.path.join(os.environ["HOME"], ".codex")
 with open(path("codex_home"), "w") as f: f.write(codex_home)
 def snake(ev): return "".join("_" + c.lower() if c.isupper() else c for c in ev).lstrip("_")
+def folder_trusted(cwd):
+    return load("projects.json", {}).get(os.path.realpath(cwd), {}).get("trust_level") == "trusted"
+def parse_key_path(p):  # codex-rs app-server/src/config_manager_service.rs parse_key_path
+    segs, seg, quoted, it = [], "", False, iter(p)
+    for ch in it:
+        if ch == '"' and not seg and not quoted: quoted = True
+        elif ch == '"' and quoted: quoted = False
+        elif ch == "\\" and quoted: seg += next(it)
+        elif ch == "." and not quoted: segs.append(seg); seg = ""
+        elif ch == '"': raise ValueError("invalid quoted keyPath segment")
+        else: seg += ch
+    if quoted: raise ValueError("unterminated quoted keyPath segment")
+    return segs + [seg]
 def entries(cwd):
-    files = [(os.path.join(codex_home, "hooks.json"), "user"), (os.path.join(cwd, ".codex", "hooks.json"), "project")]
+    files = [(os.path.join(codex_home, "hooks.json"), "user")]
+    if folder_trusted(cwd):  # Codex loads the project layer (.codex/) only for trusted folders
+        files.append((os.path.join(cwd, ".codex", "hooks.json"), "project"))
     state, out = load("hooks_state.json", {}), []
     for file, source in files:
         try:
@@ -79,19 +94,24 @@ for line in sys.stdin:
         state = load("hooks_state.json", {})
         reply(i, {"config": {}, "origins": {}, "layers": [
             {"name": {"type": "user", "file": os.path.join(codex_home, "config.toml"), "profile": None},
-             "version": "v%d" % load("version.json", 0), "config": {"model": "x", "hooks": {"state": state}}}]})
+             "version": "v%d" % load("version.json", 0),
+             "config": {"model": "x", "hooks": {"state": state}, "projects": load("projects.json", {})}}]})
     elif method == "config/batchWrite":
         if os.path.exists(path("fail_write")):
             reply(i, error="Invalid configuration: hooks.state is read-only here (fake)"); continue
         version = load("version.json", 0)
         if params.get("expectedVersion") not in (None, "v%d" % version):
             reply(i, error="configVersionConflict"); continue
-        state = load("hooks_state.json", {})
+        state, projects = load("hooks_state.json", {}), load("projects.json", {})
         for edit in params["edits"]:
-            assert edit["keyPath"] == "hooks.state"
-            if edit["mergeStrategy"] == "replace": state = dict(edit["value"])
-            else: state.update(edit["value"])
-        save("hooks_state.json", state); save("version.json", version + 1)
+            segs = parse_key_path(edit["keyPath"])
+            if segs == ["hooks", "state"]:
+                if edit["mergeStrategy"] == "replace": state = dict(edit["value"])
+                else: state.update(edit["value"])
+            else:
+                assert len(segs) == 3 and segs[0] == "projects" and segs[2] == "trust_level", segs
+                projects.setdefault(segs[1], {})["trust_level"] = edit["value"]
+        save("hooks_state.json", state); save("projects.json", projects); save("version.json", version + 1)
         reply(i, {"status": "ok", "version": "v%d" % (version + 1), "filePath": os.path.join(codex_home, "config.toml")})
     else:
         reply(i, error="unknown method " + str(method))
@@ -169,6 +189,42 @@ def run_tty(home, fakebin, state, *args, answer=None, cwd=None, extra=None):
             answered = True
     os.close(master)
     return p.wait(timeout=60), b"".join(chunks).decode(errors="replace")
+
+
+def run_tty_answers(home, fakebin, state, *args, answers=(), cwd=None, extra=None):
+    """Like run_tty, typing answers[i] at the i-th [s/N] question."""
+    master, slave = pty.openpty()
+    p = subprocess.Popen([sys.executable, str(CLI), *args], cwd=cwd or home, env=env_for(home, fakebin, state, extra),
+                         stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+    os.close(slave)
+    chunks, answered = [], 0
+    while True:
+        ready, _, _ = select.select([master], [], [], 60)
+        if not ready:
+            break
+        try:
+            data = os.read(master, 4096)
+        except OSError:
+            break
+        if not data:
+            break
+        chunks.append(data)
+        asked = b"".join(chunks).count(b"[s/N]")
+        while answered < min(asked, len(answers)):
+            os.write(master, (answers[answered] + "\n").encode())
+            answered += 1
+    os.close(master)
+    return p.wait(timeout=60), b"".join(chunks).decode(errors="replace")
+
+
+def trust_folder(state, folder):
+    """The folder was trusted in Codex before (as the TUI's "Trust this folder" leaves it)."""
+    (state / "projects.json").write_text(json.dumps({os.path.realpath(folder): {"trust_level": "trusted"}}))
+
+
+def projects(state):
+    path = state / "projects.json"
+    return json.loads(path.read_text()) if path.exists() else {}
 
 
 def requests(state):
@@ -359,6 +415,7 @@ def test_a_lookalike_hook_is_not_trusted(home, fakebin, state):
 # ---------------------------------------------------------------------------
 
 def test_project_trust_uses_the_repository_hooks(home, fakebin, state, project):
+    trust_folder(state, project)
     hooks_file = project / ".codex" / "hooks.json"
     third = with_third_party(hooks_file)
     code, out = run_tty(home, fakebin, state, "install", "--agent", "codex", "--project", answer="s", cwd=project)
@@ -371,6 +428,7 @@ def test_project_trust_uses_the_repository_hooks(home, fakebin, state, project):
 
 
 def test_project_trust_under_orca_warns_it_may_need_rerunning(home, fakebin, state, project):
+    trust_folder(state, project)
     codex = home / ".codex"
     codex.mkdir()
     (codex / ".orca-managed-home").write_text("")
@@ -415,6 +473,7 @@ def test_uninstall_removes_only_okeanos_trust_entries(home, fakebin, state):
 
 
 def test_project_uninstall_removes_only_okeanos_trust_entries(home, fakebin, state, project):
+    trust_folder(state, project)
     hooks_file = project / ".codex" / "hooks.json"
     run_tty(home, fakebin, state, "install", "--agent", "codex", "--project", answer="s", cwd=project)
     assert okeanos_keys(hooks_file) <= set(hooks_state(state))
@@ -440,3 +499,120 @@ def test_each_hook_is_reported_once_even_if_codex_lists_its_file_twice(home, fak
     assert out.count("confiado: Stop") == 1
     [write] = writes(state)
     assert len(write["edits"][0]["value"]) == 6
+
+
+# ---------------------------------------------------------------------------
+# --project in a folder Codex doesn't trust yet: a second, separate question
+# ---------------------------------------------------------------------------
+
+FOLDER_QUESTION = "Marcar a pasta como confiável no Codex?"
+
+
+def folder_edit(folder):
+    key = os.path.realpath(folder).replace("\\", "\\\\").replace('"', '\\"')
+    return {"keyPath": f'projects."{key}".trust_level', "value": "trusted", "mergeStrategy": "replace"}
+
+
+def test_untrusted_folder_yes_yes_trusts_the_folder_then_the_hooks(home, fakebin, state, project):
+    hooks_file = project / ".codex" / "hooks.json"
+    code, out = run_tty_answers(home, fakebin, state, "install", "--agent", "codex", "--project",
+                                answers=["s", "s"], cwd=project)
+    assert code == 0, out
+    assert "O Codex só carrega hooks de projetos confiáveis" in out
+    assert f"esta pasta ({os.path.realpath(project)}) ainda não é" in out
+    assert "resto da configuração em .codex/" in out
+    folder, hooks = writes(state)
+    assert folder["edits"] == [folder_edit(project)] and folder["reloadUserConfig"] is True
+    assert set(hooks["edits"][0]["value"]) == okeanos_keys(hooks_file)
+    assert projects(state) == {os.path.realpath(project): {"trust_level": "trusted"}}
+    assert okeanos_keys(hooks_file) <= set(hooks_state(state))
+    methods = [r.get("method") for r in requests(state)]
+    assert methods.index("config/read") < methods.index("config/batchWrite")
+    assert methods[-1] == "hooks/list"  # verified with Codex after the writes
+    assert "NÃO" not in out
+
+
+def test_untrusted_folder_declined_writes_nothing_and_says_how(home, fakebin, state, project):
+    code, out = run_tty_answers(home, fakebin, state, "install", "--agent", "codex", "--project",
+                                answers=["s", "n"], cwd=project)
+    assert code == 0, out
+    assert FOLDER_QUESTION in out
+    assert writes(state) == [] and projects(state) == {} and hooks_state(state) == {}
+    assert "Trust this folder" in out and "okeanos codex-confiar --project" in out
+
+
+def test_folder_question_defaults_to_no(home, fakebin, state, project):
+    code, out = run_tty_answers(home, fakebin, state, "install", "--agent", "codex", "--project",
+                                answers=["s", ""], cwd=project)
+    assert code == 0, out
+    assert FOLDER_QUESTION in out and writes(state) == []
+
+
+def test_trusted_folder_gets_no_folder_question(home, fakebin, state, project):
+    trust_folder(state, project)
+    code, out = run_tty_answers(home, fakebin, state, "install", "--agent", "codex", "--project",
+                                answers=["s", "s"], cwd=project)
+    assert code == 0, out
+    assert FOLDER_QUESTION not in out and out.count("[s/N]") == 1
+    [write] = writes(state)
+    assert write["edits"][0]["keyPath"] == "hooks.state"
+
+
+def test_codex_confiar_project_sim_trusts_folder_and_hooks(home, fakebin, state, project):
+    run(home, fakebin, state, "install", "--agent", "codex", "--project", cwd=project)
+    assert requests(state) == []
+    code, out = run_tty(home, fakebin, state, "codex-confiar", "--project", "--sim", cwd=project)
+    assert code == 0, out
+    assert "[s/N]" not in out
+    folder, hooks = writes(state)
+    assert folder["edits"] == [folder_edit(project)]
+    assert set(hooks["edits"][0]["value"]) == okeanos_keys(project / ".codex" / "hooks.json")
+
+
+def test_codex_confiar_project_sim_without_a_terminal_writes_nothing(home, fakebin, state, project):
+    run(home, fakebin, state, "install", "--agent", "codex", "--project", cwd=project)
+    code, out = run(home, fakebin, state, "codex-confiar", "--project", "--sim", cwd=project)
+    assert code != 0 and requests(state) == [] and projects(state) == {}
+
+
+def test_install_project_in_an_agent_session_trusts_no_folder(home, fakebin, state, project):
+    code, out = run_tty_answers(home, fakebin, state, "install", "--agent", "codex", "--project",
+                                answers=["s", "s"], cwd=project, extra={"CODEX_THREAD_ID": "t"})
+    assert code == 0, out
+    assert "[s/N]" not in out and requests(state) == [] and projects(state) == {}
+
+
+def test_folder_key_escapes_a_quote_in_the_path(home, fakebin, state, tmp_path):
+    weird = tmp_path / 'my "repo'
+    weird.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=weird, check=True)
+    code, out = run_tty_answers(home, fakebin, state, "install", "--agent", "codex", "--project",
+                                answers=["s", "s"], cwd=weird)
+    assert code == 0, out
+    folder, _ = writes(state)
+    assert folder["edits"][0]["keyPath"] == 'projects."' + os.path.realpath(weird).replace('"', '\\"') + '".trust_level'
+    assert projects(state) == {os.path.realpath(weird): {"trust_level": "trusted"}}
+    assert okeanos_keys(weird / ".codex" / "hooks.json") <= set(hooks_state(state))
+
+
+def test_linked_worktree_folder_is_not_trusted(home, fakebin, state, project):
+    """Codex keys a linked worktree's trust by the main checkout, not this project's root: refuse."""
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "x"],
+                   cwd=project, check=True)
+    wt = project.parent / "wt"
+    subprocess.run(["git", "worktree", "add", "-q", str(wt)], cwd=project, check=True)
+    code, out = run_tty_answers(home, fakebin, state, "install", "--agent", "codex", "--project",
+                                answers=["s", "s"], cwd=wt)
+    assert code == 0, out
+    assert FOLDER_QUESTION not in out
+    assert writes(state) == [] and projects(state) == {}
+    assert os.path.realpath(project) in out
+
+
+def test_project_uninstall_keeps_folder_trust(home, fakebin, state, project):
+    trust_folder(state, project)
+    run_tty(home, fakebin, state, "install", "--agent", "codex", "--project", answer="s", cwd=project)
+    code, out = run(home, fakebin, state, "install", "--agent", "codex", "--project", "--uninstall", cwd=project)
+    assert code == 0, out
+    assert projects(state) == {os.path.realpath(project): {"trust_level": "trusted"}}
+    assert "confiável" in out and "continua" in out
