@@ -89,7 +89,7 @@ def normalize_target(root, raw):
     rel = os.path.relpath(full, real_root)
     if git(root, "cat-file", "-e", f"HEAD:{rel}") is None:
         return None, (f"`{raw}` não é um arquivo commitado. Alvos aprováveis: um teste commitado, "
-                      "`push` ou `pacote:<nome>`. Segredos, force push, --no-verify, rm -r fora do repo "
+                      "o `docs/agents/checks.json` commitado, `push` ou `pacote:<nome>`. Segredos, force push, --no-verify, rm -r fora do repo "
                       "e pacote inexistente nunca são aprováveis.")
     return rel, None
 
