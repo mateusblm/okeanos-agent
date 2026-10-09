@@ -55,12 +55,10 @@ def human_only(sub):
 
 def consent_refusal():
     """Why the human can't be asked for consent here (short, for the install report), or None."""
+    if human_only("install") is None:
+        return None
     var = agent_session_var()
-    if var:
-        return f"`{var}` mostra que este shell é de uma sessão de agente"
-    if not interactive():
-        return "sem terminal interativo"
-    return None
+    return f"`{var}` mostra que este shell é de uma sessão de agente" if var else "sem terminal interativo"
 
 
 def clock(ts):
