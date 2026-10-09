@@ -436,7 +436,12 @@ sequenceDiagram
     end
   end
   Inst->>Conf: link da CLI em ~/.local/bin
-  Inst-->>Dev: o que foi feito por agente e próximos passos (/hooks no Codex)
+  Inst-->>Dev: o que foi feito por agente e próximos passos
+  opt Codex, com terminal interativo e consentimento
+    Inst->>Dev: autorizar os hooks? (e, por projeto, confiar na pasta?)
+    Dev-->>Inst: s
+    Inst->>Conf: codex app-server: hooks/list, config/batchWrite, hooks/list (verifica)
+  end
 ```
 
 ## 7. Visão de implantação
@@ -580,7 +585,7 @@ Não há ADRs em `docs/adr/`. Decisões relevantes, todas sem ADR:
 | Copilot e Cursor nunca rodaram uma sessão real com o Okeanos; os dialetos foram testados com payloads montados da documentação. | risco | Alto: um formato diferente faz o dialeto devolver `None` e tudo passa (fail-open). | portabilidade |
 | Formatos não documentados: argumentos das ferramentas de edição do Copilot, transcript do Copilot (última mensagem no `agentStop`), `tool_input` do Cursor (`StrReplace`, `path` ou `file_path`). | risco | Médio: handoff não detectado, ou edição tratada como reescrita total. | portabilidade |
 | Codex só passa `apply_patch` pelo `PostToolUse`: escritas pelo shell não rodam `onEdit`. | débito | Baixo: o stop ainda roda `onDone`. | portabilidade |
-| Codex exige `/hooks` para confiar nos hooks depois de instalar e de cada atualização; até lá, nenhuma proteção roda. | risco | Médio. | portabilidade |
+| O Codex só roda hooks confiados. O instalador autoriza os do Okeanos com o seu consentimento (`okeanos codex-confiar`), pelas mesmas chamadas do `app-server` que o `/hooks` usa, mas essas chamadas não são documentadas para este uso (openai/codex#21615); se mudarem, volta a valer o `/hooks` manual. Depois de atualizar o Okeanos, autorizar de novo. | risco | Médio. | portabilidade, codex-confiar |
 | Sob o Orca, cada projeto precisa de `okeanos install --agent codex --project`; projeto esquecido roda sem hooks. Hooks de usuário e de projeto juntos rodariam duas vezes (o instalador avisa). | risco | Médio. | portabilidade |
 | Reserva em TMPDIR some no reboot: métricas e estado de sessão podem ficar curtos. | débito | Baixo: a `retro` avisa quando as contagens parecem curtas. | portabilidade |
 | Hooks de usuário do Copilot não valem na nuvem, que só lê `.github/hooks/` do repositório; o instalador não escreve lá. | débito | Médio na nuvem. | portabilidade |
