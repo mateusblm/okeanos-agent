@@ -231,7 +231,7 @@ Cada etapa do processo é uma suposição sobre o que o modelo ainda não faz be
 
 ## Limitações
 
-- Copilot e Cursor ainda não rodaram numa sessão real com o Okeanos; parte do formato dos dados foi tirada da documentação. Detalhes em [docs/agentes.md](docs/agentes.md#limitações-por-agente).
+- Copilot e Cursor ainda não rodaram numa sessão real com o Okeanos; parte do formato dos dados foi tirada da documentação. Detalhes em [docs/agentes.md](docs/agentes.md).
 - Os hooks precisam de `python3`; o modo AFK precisa de Node e Docker; a checagem de pacotes precisa de rede.
 - Gemini CLI e opencode não são suportados.
 - As paradas para aprovação atrapalham exploração rápida. Nesses casos, use "sem okeanos".

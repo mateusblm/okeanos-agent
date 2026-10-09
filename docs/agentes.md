@@ -38,12 +38,3 @@ Detectado por `cursor`, `cursor-agent` ou pela pasta `~/.cursor`. Hooks em `~/.c
 | Limitações | nenhuma conhecida | só `apply_patch` passa pelo `PostToolUse`; `disable-model-invocation` é ignorado | lembrete de rota vai no início da sessão; avisos só para você não aparecem; hooks de usuário não valem na nuvem | sem lembrete de rota; avisos só para você não aparecem; edição por ferramenta desconhecida não é barrada antes |
 
 "Avisos só para você" são a escalada depois de 3 bloqueios, a falha com a linha de handoff e o aviso de tamanho do diff; nesses agentes, veja-os em `okeanos metrics`. O Copilot na nuvem trata "perguntar" como "negar" e só lê hooks de `.github/hooks/` do repositório. No Cursor, o turno continua com a mensagem de falha como se fosse sua, até 3 vezes (o `loop_limit` padrão do Cursor é 5); turno cancelado ou com erro não continua.
-
-## Limitações por agente
-
-- Copilot e Cursor não tiveram nenhuma sessão real com o Okeanos: os dialetos foram testados com payloads montados a partir da documentação. Partes do formato são inferidas:
-  - Copilot: os argumentos das ferramentas de edição (`edit`, `create`, `str_replace_editor`) não estão documentados, então o dialeto aceita as duas grafias; o `agentStop` não traz a última mensagem, e o dialeto a procura no transcript, cujo formato não é documentado.
-  - Cursor: o `tool_input` das ferramentas de arquivo (`StrReplace`, `path` ou `file_path`, `content`) vem de relatos, não da documentação; o que o dialeto não consegue ler conta como reescrita do arquivo inteiro. A variável `CURSOR_AGENT`, usada para recusar `okeanos aprovar` no shell do agente, também não é documentada.
-- O Copilot não põe no shell das ferramentas uma variável que identifique a sessão; ali, a recusa de `okeanos aprovar` depende só da exigência de terminal interativo e do bloqueio pelos hooks.
-- No Cursor, os hooks do Cursor CLI ficam de fora; o alvo é o agente do Cursor IDE.
-- Sem `python3`, o processo continua e os hooks ficam desligados. Offline, a checagem de pacotes não bloqueia.
