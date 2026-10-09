@@ -626,6 +626,17 @@ def test_agent_running_okeanos_aprovar_is_denied(repo, command):
     assert d == "deny" and "humano" in reason
 
 
+@pytest.mark.parametrize("command", [
+    "okeanos codex-confiar",
+    "okeanos codex-confiar --project --sim",
+    "bin/okeanos codex-confiar --sim",
+    "sh -c 'okeanos codex-confiar --sim'",
+])
+def test_agent_trusting_codex_hooks_is_denied(repo, command):
+    d, reason = decision(bash(repo, command)[1])
+    assert d == "deny" and "humano" in reason
+
+
 def test_agent_running_okeanos_aprovar_outside_a_repo_is_denied(tmp_path):
     out = hook("pre-bash", {"session_id": "s1", "cwd": str(tmp_path), "tool_name": "Bash",
                             "tool_input": {"command": "okeanos aprovar push"}})[1]

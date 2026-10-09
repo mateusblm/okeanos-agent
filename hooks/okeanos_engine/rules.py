@@ -296,9 +296,11 @@ def committed_tests_touched(root, cwd, targets):
 # approvals belong to the human: the agent never grants them to itself
 # ---------------------------------------------------------------------------
 
-HUMAN_ONLY = ("Okeanos: aprovações são do humano. Só o usuário roda `okeanos aprovar`/`revogar`, no terminal dele, "
-              "e ninguém além da CLI escreve no estado do Okeanos ({what}). Peça ao usuário e espere.")
-APPROVAL_SUBCOMMANDS = ("aprovar", "revogar")
+HUMAN_ONLY = ("Okeanos: aprovações são do humano. Só o usuário roda `okeanos aprovar`/`revogar`/`codex-confiar`, "
+              "no terminal dele, e ninguém além da CLI escreve no estado do Okeanos ({what}). Peça ao usuário e espere.")
+# Subcommands that grant trust: approving an action, revoking one, trusting the Codex hooks.
+APPROVAL_SUBCOMMANDS = ("aprovar", "revogar", "codex-confiar")
+_APPROVAL_ALT = "|".join(map(re.escape, APPROVAL_SUBCOMMANDS))
 # Tools that run a command line given as an argument or on stdin (including pseudo-terminal wrappers).
 COMMAND_RUNNERS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "eval", "xargs", "script", "unbuffer",
                    "expect", "socat", "su", "runuser", "setsid", "nohup", "env", "timeout", "watch",
@@ -316,12 +318,12 @@ STATE_READERS = {"cat", "less", "more", "head", "tail", "ls", "jq", "grep", "rg"
 STATE_MENTION = re.compile(r"(^|[^A-Za-z0-9_])\.git/(okeanos|hooks)(/|\b)|okeanos/approvals\.json")
 # "okeanos [up to 3 args] aprovar": the CLI and its subcommand close together, not a project path
 # that happens to contain "okeanos" and the word "aprovar" somewhere later in the line.
-APPROVAL_TEXT = re.compile(r"okeanos[^\s;&|]*['\"]?\s+(\S+\s+){0,3}?['\"]?(aprovar|revogar)\b")
+APPROVAL_TEXT = re.compile(r"okeanos[^\s;&|]*['\"]?\s+(\S+\s+){0,3}?['\"]?(" + _APPROVAL_ALT + r")\b")
 # The okeanos CLI named in any quoting (bin/okeanos, 'okeanos', okeanos.py, okeanos_engine, user_cli),
 # but not a path that merely contains the word (okeanos-demo, test_user_cli.py).
 OKEANOS_CLI = re.compile(r"(?<![\w.-])(okeanos(\.py)?(?![\w.-])|okeanos_engine(?!\w)|user_cli(?!\w))")
 # What only the human may do with the CLI: approve, revoke, uninstall hooks.
-HUMAN_SUBCOMMAND = re.compile(r"(?<![\w-])(aprovar|revogar)(?![\w-])|--uninstall\b")
+HUMAN_SUBCOMMAND = re.compile(r"(?<![\w-])(" + _APPROVAL_ALT + r")(?![\w-])|--uninstall\b")
 # The variables the CLI reads to recognise an agent shell (user_cli.AGENT_SESSION_VARS, by prefix).
 AGENT_VAR = r"(CLAUDECODE|CLAUDE_CODE_\w+|CODEX_\w+|CURSOR_AGENT|CURSOR_\w+|COPILOT_\w+)"
 CLEARS_AGENT_ENV = re.compile(
