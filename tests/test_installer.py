@@ -933,5 +933,5 @@ def test_doctor_shows_orca_and_codex_project_hooks(home, fakebin, project):
     lines = doctor()
     assert any("Orca" in l and l.rstrip().endswith("sim") for l in lines), lines
     assert any(".codex/hooks.json" in l and l.rstrip().endswith("sim") for l in lines), lines
-    line = next(l for l in lines if l.strip().startswith("codex:"))
+    line = next(l for l in lines if l.strip().startswith("codex:") and "instalado" in l)
     assert "instruções" in line and "skills" in line
