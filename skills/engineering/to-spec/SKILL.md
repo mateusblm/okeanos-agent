@@ -5,7 +5,7 @@ description: "Turn the current conversation into a spec and publish it to the pr
 
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
-The issue tracker and triage label vocabulary should have been provided to you. If not, call the Skill tool with "setup-okeanos".
+The issue tracker and triage label vocabulary should have been provided to you. If not, use the `setup-okeanos` skill.
 
 ## Process
 
@@ -15,7 +15,7 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 Check with the user that these seams match their expectations.
 
-3. If the change touches any of the security triggers listed under **Security** in the template, call the Skill tool with "threat-model" and fold its result into the spec.
+3. If the change touches any of the security triggers listed under **Security** in the template, use the `threat-model` skill and fold its result into the spec.
 
 4. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
 

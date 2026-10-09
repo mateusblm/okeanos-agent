@@ -6,7 +6,9 @@
   ],
   "onDone": [
     { "name": "plugin", "cmd": "claude plugin validate .claude-plugin/plugin.json" },
-    { "name": "marketplace", "cmd": "claude plugin validate ." }
+    { "name": "marketplace", "cmd": "claude plugin validate ." },
+    { "name": "build", "cmd": "python3 scripts/build.py --check" },
+    { "name": "tests", "cmd": "python3 -m pytest -q" }
   ],
   "maxChangedLines": 400
 }

@@ -1,16 +1,16 @@
 ---
 name: onboard
-description: Read a project that lacks Okeanos context and write it - a short, human-approved CLAUDE.md and the docs/agents/checks.json the Okeanos hooks run. Use at the start of a session in a repo without CLAUDE.md or checks.json, or when the user asks to create or refresh the project's context file.
+description: Read a project that lacks Okeanos context and write it - a short, human-approved context file (CLAUDE.md in Claude Code, AGENTS.md in other agents) and the docs/agents/checks.json the Okeanos hooks run. Use at the start of a session in a repo without that context file or checks.json, or when the user asks to create or refresh the project's context file.
 ---
 
 # Onboard
 
 Two files give every later session what it needs, and nothing more:
 
-- **`CLAUDE.md`**: the few things an agent can't cheaply rediscover: the commands, the non-obvious conventions, and the traps. Short and approved by the user.
+- **The context file**: `CLAUDE.md` in Claude Code, `AGENTS.md` in every other agent (Codex, Copilot, Cursor read it natively). Below, "the context file" means the one for the agent you are running in. It holds the few things an agent can't cheaply rediscover: the commands, the non-obvious conventions, and the traps. Short and approved by the user.
 - **`docs/agents/checks.json`**: the commands the Okeanos hooks run deterministically: format and lint after each edit, typecheck, tests and build before the agent may stop.
 
-Keep `CLAUDE.md` lean on purpose. In a 2026 study, LLM-generated context files with repository overviews didn't improve agent results and raised cost by over 20%; the helpful ones were short and written or reviewed by humans. An agent can list directories itself; it can't guess a project's traps.
+Keep the context file lean on purpose. In a 2026 study, LLM-generated context files with repository overviews didn't improve agent results and raised cost by over 20%; the helpful ones were short and written or reviewed by humans. An agent can list directories itself; it can't guess a project's traps.
 
 Write in the language the user speaks in the session. Do this before anything else the user asked, then carry on with their request.
 
@@ -18,8 +18,9 @@ Write in the language the user speaks in the session. Do this before anything el
 
 - Not inside a git repository, or no source files yet: nothing to describe. Carry on silently.
 - Both files exist: nothing to do unless the user asks for a refresh.
-- `CLAUDE.md` exists but `checks.json` doesn't: do only step 3, without touching `CLAUDE.md`.
-- `AGENTS.md` exists but `CLAUDE.md` doesn't: the new `CLAUDE.md` starts with `@AGENTS.md` (so Claude Code loads it) and adds only what `AGENTS.md` lacks.
+- The context file exists but `checks.json` doesn't: do only step 3, without touching the context file.
+- In Claude Code, `AGENTS.md` exists but `CLAUDE.md` doesn't: the new `CLAUDE.md` starts with `@AGENTS.md` (so Claude Code loads it) and adds only what `AGENTS.md` lacks.
+- In another agent, `CLAUDE.md` exists but `AGENTS.md` doesn't: propose moving its content to a new `AGENTS.md` and leaving `@AGENTS.md` as the first line of `CLAUDE.md`, so both agents read one file. If the user declines, write an `AGENTS.md` with only what this agent needs from `CLAUDE.md`.
 
 ## 1. Read the project
 
@@ -34,9 +35,9 @@ Read, don't guess, stopping as soon as you can fill the sections below:
 
 Don't run anything that installs, builds, migrates, starts services, or touches the network.
 
-## 2. Draft `CLAUDE.md` and get it approved
+## 2. Draft the context file and get it approved
 
-Call the Skill tool with "writing-for-agents" for how to write for an agent reader. Draft this shape (headings in the session language):
+Use the `writing-for-agents` skill for how to write for an agent reader. Draft this shape (headings in the session language):
 
 ```markdown
 # <Nome do projeto>
@@ -72,7 +73,7 @@ Show the draft to the user and ask them to cut or correct anything before you wr
 
 ## 3. Write `docs/agents/checks.json`
 
-From the commands you confirmed (or from `CLAUDE.md` when it already existed), write:
+From the commands you confirmed (or from the context file when it already existed), write:
 
 ```json
 {

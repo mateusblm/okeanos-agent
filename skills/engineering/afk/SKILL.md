@@ -20,16 +20,23 @@ The runner is [scaffold/main.mts](scaffold/main.mts), built on Sandcastle (`@ai-
 
 Skip this step if `.sandcastle/main.mts` already exists.
 
-1. Copy every file in this skill's `scaffold/` folder into `<repo>/.sandcastle/`. Rename `gitignore` to `.gitignore` and `env.example` to `.env.example`.
-2. Copy the `tdd` and `codebase-design` skill folders (siblings of this skill's folder) into `.sandcastle/skills/`. The sandbox mounts them as the agent's skills. The folder is gitignored, so re-copy it when it is missing.
-3. Fill in the configuration block at the top of `.sandcastle/main.mts` from what the repo actually uses. Set `HIDDEN_ACCEPTANCE = true` when the user wants it for a critical feature: a separate agent then writes each ticket's acceptance tests from the criteria alone, kept outside the repo until the implementer and reviewer finish, and the ticket only merges if they pass. It doubles agent runs per ticket and needs a spec that names the interfaces to test. The rest of the block: `INSTALL_COMMAND` (lockfile tells the package manager), `VERIFY_COMMAND` (typecheck plus tests, from `package.json` scripts, `Makefile`, CI config), `COPY_TO_WORKTREE` (e.g. `node_modules` to speed up installs).
-4. If the project needs runtimes beyond Node (Python, Go, a database client), add them to `.sandcastle/Dockerfile` at the `OKEANOS:` marker.
-5. Write `.sandcastle/CODING_STANDARDS.md` from the repo's real conventions: `CLAUDE.md`, linters, existing code. Keep it short and specific.
-6. Install the runner: `npm install --prefix .sandcastle`.
-7. Build the image: `.sandcastle/node_modules/.bin/sandcastle docker build-image`.
-8. The token is a human step. Tell the user to run `claude setup-token` and paste the result as `CLAUDE_CODE_OAUTH_TOKEN` in `.sandcastle/.env` (copy it from `.sandcastle/.env.example`). Never read, print, or write the token yourself. Wait until they confirm.
+1. Ask the user which agent runs in the sandboxes: Claude Code (default), Codex, GitHub Copilot or Cursor. The runner supports only these four; anything else fails at startup with the list.
+2. Copy every file in this skill's `scaffold/` folder into `<repo>/.sandcastle/`. Rename `gitignore` to `.gitignore` and `env.example` to `.env.example`.
+3. Copy the `tdd` and `codebase-design` skill folders (siblings of this skill's folder) into `.sandcastle/skills/`. The sandbox mounts them where the chosen agent reads user skills (`~/.claude/skills` for Claude Code, `~/.agents/skills` for the others). The folder is gitignored, so re-copy it when it is missing.
+4. Fill in the configuration block at the top of `.sandcastle/main.mts` from what the repo actually uses. Set `AGENT` to `"claude"`, `"codex"`, `"copilot"` or `"cursor"`, and adjust that agent's row in `MODELS` if the user wants other models. Set `HIDDEN_ACCEPTANCE = true` when the user wants it for a critical feature: a separate agent then writes each ticket's acceptance tests from the criteria alone, kept outside the repo until the implementer and reviewer finish, and the ticket only merges if they pass. It doubles agent runs per ticket and needs a spec that names the interfaces to test. The rest of the block: `INSTALL_COMMAND` (lockfile tells the package manager), `VERIFY_COMMAND` (typecheck plus tests, from `package.json` scripts, `Makefile`, CI config), `COPY_TO_WORKTREE` (e.g. `node_modules` to speed up installs).
+5. In `.sandcastle/Dockerfile`, keep the install block of the chosen agent at the `OKEANOS: agent CLI` marker: for anything other than Claude Code, uncomment that agent's line and comment out the Claude Code one. If the project needs runtimes beyond Node (Python, Go, a database client), add them at the `OKEANOS: project runtimes` marker.
+6. Write `.sandcastle/CODING_STANDARDS.md` from the repo's real conventions: `CLAUDE.md` or `AGENTS.md`, linters, existing code. Keep it short and specific.
+7. Install the runner: `npm install --prefix .sandcastle`.
+8. Build the image: `.sandcastle/node_modules/.bin/sandcastle docker build-image`.
+9. The token is a human step. Tell the user to copy `.sandcastle/.env.example` to `.sandcastle/.env` and paste the chosen agent's entry themselves:
+   - Claude Code: run `claude setup-token` and paste it as `CLAUDE_CODE_OAUTH_TOKEN` (or set `ANTHROPIC_API_KEY`).
+   - Codex: `OPENAI_API_KEY`.
+   - GitHub Copilot: `GITHUB_TOKEN` (or `COPILOT_GITHUB_TOKEN`), a token with the "Copilot Requests" permission.
+   - Cursor: `CURSOR_API_KEY`.
 
-Show the user the filled configuration block and the Dockerfile changes before the first run.
+   Never read, print, or write the token or key yourself, not even to check it is set. Wait until they confirm.
+
+Show the user the filled configuration block (with `AGENT`) and the Dockerfile changes before the first run.
 
 ## 2. Pilot, then launch
 
@@ -55,7 +62,7 @@ Tell the user it is running, how many tickets are ready, and that they can leave
 
 When the run ends, read `.scratch/<feature>/afk-report.md` and summarize it in one short block: done, failed (with reason), still open.
 
-- **Failed tickets**: inspect the branch (`okeanos/afk-<feature>-<NN>`) and the logs. Fix them in the session (Skill tool with "implement" for that ticket) or re-run AFK after fixing the cause.
-- **All done**: call the Skill tool with "code-review" on the integration branch against the base it was cut from, then call the Skill tool with "as-built". Then G2 as usual.
+- **Failed tickets**: inspect the branch (`okeanos/afk-<feature>-<NN>`) and the logs. Fix them in the session (use the `implement` skill for that ticket) or re-run AFK after fixing the cause.
+- **All done**: use the `code-review` skill on the integration branch against the base it was cut from, then offer the `as-built` docs and use that skill only if the user wants them. Then G2 as usual.
 
 Clean up the per-ticket branches that were merged (`git branch -d okeanos/afk-<feature>-*`).

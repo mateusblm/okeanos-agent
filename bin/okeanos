@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+"""okeanos: the user's command line (aprovar, aprovacoes, revogar, metrics, githooks, doctor).
+
+Run `okeanos --help`. Reuses the hook engine in ../hooks/okeanos_engine. Stdlib only.
+"""
+
+import os
+import sys
+
+sys.dont_write_bytecode = True  # keep the plugin directory clean
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "hooks"))
+
+from okeanos_engine.user_cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

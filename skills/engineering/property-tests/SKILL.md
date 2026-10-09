@@ -30,7 +30,7 @@ Keep only properties the spec actually implies. Show the list to the user only i
 
 Use the library the project has; if none, propose the standard one and add it after the user agrees: **fast-check** (JS/TS), **Hypothesis** (Python), **jqwik** (Java), **proptest** (Rust), **rapid** or `testing/quick` (Go).
 
-Spawn the subagent with: the spec, the acceptance criteria, the public signatures it may call, the test conventions of the repo (`CLAUDE.md`, two existing tests), and this brief: "Write one property test per property below, through the public interface only. Generators must cover edge values (empty, zero, negative, unicode, huge). Run them. Report each failing property with the shrunk counterexample. Don't change non-test code."
+Spawn the subagent with: the spec, the acceptance criteria, the public signatures it may call, the test conventions of the repo (`CLAUDE.md` or `AGENTS.md`, two existing tests), and this brief: "Write one property test per property below, through the public interface only. Generators must cover edge values (empty, zero, negative, unicode, huge). Run them. Report each failing property with the shrunk counterexample. Don't change non-test code."
 
 ## 3. Act on counterexamples
 
