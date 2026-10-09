@@ -177,7 +177,7 @@ const spec = existsSync(specPath) ? readFileSync(specPath, "utf8") : "(no spec f
 
 const sandbox = () =>
   docker({
-    // Okeanos skills (tdd, codebase-design) available to the agent in the sandbox.
+    // Okeanos skills (okeanos-tdd, okeanos-codebase-design, okeanos-frontend-ui) available to the agent in the sandbox.
     mounts: [
       { hostPath: ".sandcastle/skills", sandboxPath: AGENTS[agentName].skillsDir, readonly: true },
     ],
