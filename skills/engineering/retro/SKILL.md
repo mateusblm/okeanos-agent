@@ -1,6 +1,11 @@
 ---
 name: retro
 description: "Conduct a retrospective on a coding session."
+metadata:
+  credits:
+    skill: correct
+    author: Lauren Tan
+    url: "https://github.com/cursor/plugins/tree/main/pstack/skills/correct"
 ---
 
 The user has asked for a **retrospective**. You are suggesting improvements to the coding agent's **environment** to improve future runs.
@@ -21,6 +26,8 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 
    Add what git shows: reverts, fix-up commits on the same lines, and CI failures if the repo has CI. A kind that repeats is the strongest candidate for a finding.
 
+   Read `docs/agents/regras.md` if it exists. A rule enforced by "nada" that the session or the log shows violated again is a finding.
+
 3. Look for candidates for improvement in these categories.
 
 - **Navigation**: how easy was it for the agent to find the right files? Are there hidden dependencies between files? Would a **navigation pointer** make it easier? _Use when_ the session took a long time to find a piece of information.
@@ -33,7 +40,36 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 
 4. Present these candidates to the user, in order of severity, with the measurement behind each one.
 
-5. End with **one to three system changes** the user can approve: a hook or check, a rule in `CODING_STANDARDS.md` or `CLAUDE.md`, a skill edit, a new `checks.json` command. Never "be more careful" or "remember to ...": a lesson that lives only in a promise is lost by the next session. Apply the approved ones.
+5. End with **one to three system changes** the user can approve: a hook or check, a rule in `CODING_STANDARDS.md` or `CLAUDE.md`, a skill edit, a new `checks.json` command. Never "be more careful" or "remember to ...": a lesson that lives only in a promise is lost by the next session.
+
+   Place each change on the **ladder**, strongest rung first, and pick the highest one you can afford:
+
+   1. **Architecture**: make the error impossible. One owner per piece of state, one supported way per task, internals hidden so the wrong import fails, one source of truth instead of hand-synced lists, old ways deleted so nobody copies them.
+   2. **Types**: the bad state can't be written.
+   3. **Lint rule or check** (a linter rule, a githook, or a command in `docs/agents/checks.json`) whose message says the fix: the file, type, or function to use instead. If the pattern is already common, fail only when a change adds more.
+   4. **Test** of the behavior, one that would fail if the functions it calls returned nothing.
+   5. **Docs** or an agent rule, only for judgment calls. Nothing fails when an agent skips them.
+
+   For each change, say why the rungs above it were not chosen (too costly, not expressible in this language, needs judgment).
+
+   **Prove each new check.** Find the real past error it targets: a commit, a revert, or an event in `okeanos metrics`/`metrics.jsonl`. Run the check against that state (for example in a temporary worktree at the commit) and paste the failure output. If there is no real past error to run it against, say so explicitly; never present an unproven check as proven.
+
+   Apply the approved changes, and update the rule table (step 6) in the same change.
+
+6. **Keep `docs/agents/regras.md`**, the table of the project's rules and what enforces each one. If it doesn't exist, propose it with the rules you found (in `CLAUDE.md`/`AGENTS.md`, `CODING_STANDARDS.md`, `checks.json`, the hooks) and create it once the user approves. Add or update a row with every change; drop a row once its error can't happen.
+
+   ```markdown
+   # Regras
+
+   | Regra | O que a aplica |
+   | :- | :- |
+   | Não editar testes commitados para passar | hook (pre-edit) |
+   | Dinheiro só via `Money`, nunca `float` | tipo (`Money`) |
+   | Toda rota nova tem teste de contrato | teste (`tests/test_routes.py`) |
+   | Nomes de domínio seguem o GLOSSARY | nada (julgamento, review) |
+   ```
+
+   The second column is one of: hook, check (its name in `checks.json`), lint, tipo, teste, or nada.
 
 ## Reference
 
