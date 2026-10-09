@@ -644,6 +644,15 @@ def test_reading_commands_are_allowed(repo, command):
 
 
 @pytest.mark.parametrize("command", [
+    # a project path containing "okeanos", a runner (timeout/env) and the word "aprovar" far away
+    "cd /home/u/okeanos-codex-e2e && timeout 60 codex exec 'muda o limite' && grep -n 'Para aprovar' log.txt",
+    "cd ~/okeanos-demo && env FOO=1 npm test && echo 'falta aprovar o PR'",
+])
+def test_okeanos_and_aprovar_far_apart_are_not_self_approval(repo, command):
+    assert bash(repo, command) == (0, None), command
+
+
+@pytest.mark.parametrize("command", [
     "echo '{\"push\": {\"expires_at\": 9999999999}}' > .git/okeanos/approvals.json",
     "cat x >> .git/okeanos/approvals.json",
     "cp /tmp/x .git/okeanos/approvals.json",
