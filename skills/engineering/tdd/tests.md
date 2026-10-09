@@ -75,3 +75,11 @@ test("calculateTotal sums line items", () => {
   expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
 });
 ```
+
+**Hollow tests**: The check for every test: would it still pass if every imported function returned `undefined`/`None`/empty? If yes, it tests nothing. Three common shapes:
+
+- **Mock-only**: asserts the mock it set up, never the result. `expect(mockSend).toHaveBeenCalled()`
+- **Constant pin**: asserts a literal or config value equals the same literal. `expect(LIMITS.maxItems).toBe(50)`
+- **Self-asserting fixture**: checks data the test just built; the code under test never runs. `const user = { name: "Ana" }; expect(user.name).toBe("Ana")`
+
+Fix: call the code under test in the body with one concrete input and assert the literal output or the observable effect (for a mock, the payload it received; for a constant, the behavior that reads it). If no such assertion exists, delete the test.
