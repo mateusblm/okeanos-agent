@@ -399,6 +399,73 @@ def test_passing_done_is_silent(repo):
     assert stop(repo) == (0, None)
 
 
+def commit_files(root, files):
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "configs")
+
+
+def notice(out):
+    """A Codex stop notice: a systemMessage, never a block."""
+    assert out is not None and set(out) == {"systemMessage"}, out
+    assert out["systemMessage"].startswith("[Okeanos] ")
+    return out["systemMessage"]
+
+
+def test_loosened_tsconfig_warns_codex_once_without_blocking(repo):
+    commit_files(repo, {"tsconfig.json": '{\n  "compilerOptions": {\n    "strict": true\n  }\n}\n'})
+    session_start(repo)
+    (repo / "tsconfig.json").write_text('{\n  "compilerOptions": {\n    "strict": false\n  }\n}\n')
+    message = notice(stop(repo)[1])
+    assert "tsconfig.json" in message and "`strict` desligado" in message
+    assert stop(repo) == (0, None)
+    assert {e["agent"] for e in metrics(repo) if e["kind"] == "stop:quality"} == {"codex"}
+
+
+def test_lowered_coverage_warns_codex_once(repo):
+    commit_files(repo, {"pyproject.toml": "[tool.coverage.report]\nfail_under = 90\n"})
+    session_start(repo)
+    (repo / "pyproject.toml").write_text("[tool.coverage.report]\nfail_under = 70\n")
+    assert "`fail_under` baixou de 90 para 70" in notice(stop(repo)[1])
+    assert stop(repo) == (0, None)
+
+
+def test_loosened_checks_json_warns_codex_once(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "true"}], "maxChangedLines": 300})
+    session_start(repo)
+    (repo / "docs" / "agents" / "checks.json").write_text(json.dumps({"onDone": [], "maxChangedLines": 300}))
+    message = notice(stop(repo)[1])
+    assert "docs/agents/checks.json" in message and "`true` removido" in message
+    assert stop(repo) == (0, None)
+
+
+@pytest.mark.parametrize("rel,code,expected", [
+    ("src/a.py", "def load(path):\n    raise NotImplementedError\n", "stub"),
+    ("src/a.ts", "export function load() {\n  try { run(); } catch (e) {}\n}\n", "catch vazio"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except Exception:\n        pass\n", "except vazio"),
+], ids=["raise", "catch", "except"])
+def test_new_stub_or_empty_catch_warns_codex_once(repo, rel, code, expected):
+    session_start(repo)
+    (repo / rel).write_text(code)
+    message = notice(stop(repo)[1])
+    assert rel in message and expected in message
+    assert stop(repo) == (0, None)
+
+
+def test_stub_in_a_test_file_is_silent_in_codex(repo):
+    session_start(repo)
+    (repo / "tests" / "test_load.py").write_text("def test_load():\n    raise NotImplementedError\n")
+    assert stop(repo) == (0, None)
+
+
+def test_clean_change_is_silent_in_codex(repo):
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "\n\ndef sub(a, b):\n    return a - b\n")
+    assert stop(repo) == (0, None)
+
+
 def test_first_prompt_gets_the_route_reminder(repo):
     payload = common(repo, "UserPromptSubmit") | {"prompt": "add a sub function"}
     code, out = hook("prompt", payload)
@@ -454,3 +521,90 @@ def test_onboard_check_in_claude_still_wants_claude_md(repo):
     (repo / "AGENTS.md").write_text("# proj\n")
     set_checks(repo, {"onDone": []})
     assert "CLAUDE.md" in onboard(repo, "claude")
+
+
+# ---------------------------------------------------------------------------
+# the committed checks.json is the ruler: loosening it needs the user's approval
+# ---------------------------------------------------------------------------
+
+RULER = "docs/agents/checks.json"
+RULER_TEXT = """{
+  "onDone": [
+    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},
+    {"name": "lint", "cmd": "ruff check ."}
+  ],
+  "maxChangedLines": 400
+}
+"""
+APPROVE_RULER = f"Para aprovar: okeanos aprovar {RULER}"
+
+
+@pytest.fixture
+def ruled(repo):
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / RULER).write_text(RULER_TEXT)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "ruler")
+    return repo
+
+
+def ruler_patch(body):
+    return f"*** Begin Patch\n*** Update File: {RULER}\n{body}\n*** End Patch"
+
+
+REMOVE_LINT = ruler_patch("""@@
+-    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},
+-    {"name": "lint", "cmd": "ruff check ."}
++    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600}
+   ],""")
+CHANGE_CMD = ruler_patch("""@@
+-    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},
++    {"name": "tests", "cmd": "true", "timeout": 600},""")
+RAISE_LIMIT = ruler_patch("""@@
+   ],
+-  "maxChangedLines": 400
++  "maxChangedLines": 4000
+ }""")
+LOWER_LIMIT = RAISE_LIMIT.replace("4000", "100")
+ADD_CMD = ruler_patch("""@@
+   "onDone": [
++    {"name": "types", "cmd": "mypy ."},
+     {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},""")
+
+
+@pytest.mark.parametrize("text", [
+    REMOVE_LINT, CHANGE_CMD, RAISE_LIMIT,
+    f"*** Begin Patch\n*** Delete File: {RULER}\n*** End Patch",
+    f"*** Begin Patch\n*** Add File: {RULER}\n+{{ not json\n*** End Patch",
+    f"*** Begin Patch\n*** Update File: {RULER}\n*** Move to: docs/agents/old.json\n@@\n {{\n*** End Patch",
+], ids=["remove-cmd", "change-cmd", "raise-limit", "delete", "invalid-json", "move"])
+def test_patch_loosening_the_ruler_is_denied(ruled, text):
+    reason = denied(patch(ruled, text)[1])
+    assert RULER in reason and reason.splitlines()[-1] == APPROVE_RULER
+
+
+@pytest.mark.parametrize("text", [ADD_CMD, LOWER_LIMIT], ids=["add-cmd", "lower-limit"])
+def test_patch_tightening_the_ruler_is_allowed(ruled, text):
+    assert patch(ruled, text) == (0, None)
+
+
+@pytest.mark.parametrize("command", [
+    f"echo {{}} > {RULER}",
+    f"rm {RULER}",
+    f"sed -i 's/400/4000/' {RULER}",
+])
+def test_shell_writing_the_ruler_is_denied(ruled, command):
+    assert denied(shell(ruled, command)[1]).splitlines()[-1] == APPROVE_RULER
+
+
+def test_uncommitted_ruler_is_free(repo):
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / RULER).write_text(RULER_TEXT)
+    assert patch(repo, REMOVE_LINT) == (0, None)
+    assert shell(repo, f"echo {{}} > {RULER}") == (0, None)
+
+
+def test_approved_ruler_change_is_allowed(ruled):
+    approve(ruled, RULER)
+    assert patch(ruled, RAISE_LIMIT, env=CLOCK) == (0, None)
+    assert shell(ruled, f"rm {RULER}", env=CLOCK) == (0, None)

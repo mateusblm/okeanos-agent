@@ -24,6 +24,11 @@ def git(root, *args, timeout=10):
     return out.strip() if code == 0 else None
 
 
+def committed(root, rel):
+    """Whether the repo-relative path exists at HEAD."""
+    return git(root, "cat-file", "-e", f"HEAD:{rel}") is not None
+
+
 def repo_root(cwd):
     code, out = run(["git", "rev-parse", "--show-toplevel"], cwd)
     return out.strip() if code == 0 else None

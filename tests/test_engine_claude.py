@@ -923,3 +923,366 @@ def test_hook_files_without_okeanos_are_free(repo):
 def test_agent_cannot_edit_project_hooks_with_the_editor(hooked_repo, rel):
     d, reason = decision(edit(hooked_repo, "Write", {"file_path": str(hooked_repo / rel), "content": "{}"})[1])
     assert d == "deny" and "humano" in reason, rel
+
+
+# ---------------------------------------------------------------------------
+# the committed checks.json is the ruler: loosening it needs the user's approval
+# ---------------------------------------------------------------------------
+
+RULER = "docs/agents/checks.json"
+RULER_TEXT = """{
+  "onDone": [
+    {"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600},
+    {"name": "lint", "cmd": "ruff check ."}
+  ],
+  "onEdit": [
+    {"name": "fmt", "cmd": "ruff format {file}", "ext": [".py"]}
+  ],
+  "maxChangedLines": 400,
+  "testPatterns": ["(^|/)checks/"]
+}
+"""
+
+
+def commit_ruler(root, text=RULER_TEXT):
+    (root / "docs" / "agents").mkdir(parents=True, exist_ok=True)
+    (root / RULER).write_text(text)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "ruler")
+    return root
+
+
+@pytest.fixture
+def ruled(repo):
+    return commit_ruler(repo)
+
+
+def ruler_edit(root, old, new, **kw):
+    return edit(root, "Edit", {"file_path": str(root / RULER), "old_string": old, "new_string": new}, **kw)
+
+
+def ruler_write(root, content, **kw):
+    if not isinstance(content, str):
+        content = json.dumps(content, indent=2)
+    return edit(root, "Write", {"file_path": str(root / RULER), "content": content}, **kw)
+
+
+def ruler(**changes):
+    data = json.loads(RULER_TEXT)
+    for key, value in changes.items():
+        if value is None:
+            data.pop(key)
+        else:
+            data[key] = value
+    return data
+
+
+def asks_for_ruler(out):
+    d, reason = decision(out)
+    assert d == "ask", reason
+    assert RULER in reason
+    assert reason.splitlines()[-1] == f"Para aprovar: okeanos aprovar {RULER}"
+    return reason
+
+
+def test_changing_a_done_command_asks(ruled):
+    asks_for_ruler(ruler_edit(ruled, '"cmd": "python3 -m pytest -q"', '"cmd": "true"')[1])
+    assert "pre-edit:ask" in [e["kind"] for e in metrics(ruled)]
+
+
+def test_raising_max_changed_lines_asks(ruled):
+    asks_for_ruler(ruler_edit(ruled, '"maxChangedLines": 400', '"maxChangedLines": 2000')[1])
+
+
+def test_lowering_max_changed_lines_is_allowed(ruled):
+    assert ruler_edit(ruled, '"maxChangedLines": 400', '"maxChangedLines": 200') == (0, None)
+
+
+def test_adding_a_done_command_is_allowed(ruled):
+    assert edit(ruled, "MultiEdit", {"file_path": str(ruled / RULER), "edits": [
+        {"old_string": '"onDone": [\n', "new_string": '"onDone": [\n    {"name": "types", "cmd": "mypy ."},\n'},
+        {"old_string": '"onEdit": [\n', "new_string": '"onEdit": [\n    {"name": "lint", "cmd": "ruff check {file}"},\n'},
+    ]}) == (0, None)
+
+
+def test_multiedit_removing_a_done_command_asks(ruled):
+    asks_for_ruler(edit(ruled, "MultiEdit", {"file_path": str(ruled / RULER), "edits": [
+        {"old_string": '"onEdit": [\n', "new_string": '"onEdit": [\n    {"name": "lint", "cmd": "ruff check {file}"},\n'},
+        {"old_string": ',\n    {"name": "lint", "cmd": "ruff check ."}\n  ],', "new_string": "\n  ],"},
+    ]})[1])
+
+
+@pytest.mark.parametrize("content", [
+    ruler(onDone=[{"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 600}]),
+    ruler(onDone=None),
+    ruler(onEdit=[{"name": "fmt", "cmd": "ruff format {file}", "ext": [".py", ".pyi"]}]),
+    ruler(onDone=[{"name": "tests", "cmd": "python3 -m pytest -q", "timeout": 5}, {"name": "lint", "cmd": "ruff check ."}]),
+    ruler(maxChangedLines=None),
+    ruler(maxChangedLines="9999"),
+    ruler(testPatterns=[]),
+    "{ not json",
+    "",
+    "[]",
+], ids=["remove-done", "drop-done", "change-ext", "change-timeout", "drop-limit", "limit-as-string",
+        "remove-test-pattern", "invalid", "empty", "not-an-object"])
+def test_writing_a_looser_ruler_asks(ruled, content):
+    asks_for_ruler(ruler_write(ruled, content)[1])
+
+
+@pytest.mark.parametrize("content", [
+    ruler(testPatterns=["(^|/)checks/", "_check\\.py$"], maxChangedLines=300),
+    ruler(onDone=[{"name": "lint", "cmd": "ruff check ."},
+                  {"name": "pytest", "cmd": "python3 -m pytest -q", "timeout": 600}]),
+    ruler(extra={"note": "unknown keys are not the ruler"}),
+], ids=["tighten", "reorder-and-rename", "unknown-key"])
+def test_writing_an_equal_or_stricter_ruler_is_allowed(ruled, content):
+    assert ruler_write(ruled, content) == (0, None)
+
+
+def test_raising_the_default_limit_asks(repo):
+    commit_ruler(repo, json.dumps({"onDone": []}, indent=2))
+    asks_for_ruler(ruler_write(repo, {"onDone": [], "maxChangedLines": 1000})[1])
+    assert ruler_write(repo, {"onDone": [], "maxChangedLines": 300}) == (0, None)
+
+
+def test_edit_that_cannot_be_applied_asks(ruled):
+    asks_for_ruler(ruler_edit(ruled, '"cmd": "not in the file"', '"cmd": "true"')[1])
+
+
+@pytest.mark.parametrize("command", [
+    "echo {} > docs/agents/checks.json",
+    "cat /tmp/x >> docs/agents/checks.json",
+    "rm docs/agents/checks.json",
+    "rm -f ./docs/agents/checks.json",
+    "sed -i 's/400/4000/' docs/agents/checks.json",
+    "mv docs/agents/checks.json /tmp/checks.json",
+    "mv /tmp/looser.json docs/agents/checks.json",
+    "cp /tmp/looser.json docs/agents/checks.json",
+    "jq '.maxChangedLines = 9999' docs/agents/checks.json | tee docs/agents/checks.json",
+    "truncate -s 0 docs/agents/checks.json",
+    "git rm docs/agents/checks.json",
+    "git mv docs/agents/checks.json docs/agents/old.json",
+])
+def test_shell_writing_the_ruler_asks(ruled, command):
+    asks_for_ruler(bash(ruled, command)[1])
+
+
+def test_shell_writing_the_ruler_from_a_subdirectory_asks(ruled):
+    out = hook("pre-bash", {"session_id": "s1", "cwd": str(ruled / "docs"), "hook_event_name": "PreToolUse",
+                            "tool_name": "Bash", "tool_input": {"command": "echo {} > agents/checks.json"}})[1]
+    asks_for_ruler(out)
+
+
+@pytest.mark.parametrize("command", [
+    "cat docs/agents/checks.json",
+    "jq . docs/agents/checks.json",
+    "git diff docs/agents/checks.json",
+    "echo {} > docs/agents/other.json",
+])
+def test_reading_the_ruler_is_allowed(ruled, command):
+    assert bash(ruled, command) == (0, None), command
+
+
+def test_uncommitted_ruler_is_free(repo):
+    (repo / "docs" / "agents").mkdir(parents=True)
+    (repo / RULER).write_text(RULER_TEXT)
+    assert ruler_write(repo, {"onDone": []}) == (0, None)
+    assert ruler_edit(repo, '"maxChangedLines": 400', '"maxChangedLines": 2000') == (0, None)
+    assert bash(repo, "echo {} > docs/agents/checks.json") == (0, None)
+    assert bash(repo, "rm docs/agents/checks.json") == (0, None)
+
+
+def test_approved_ruler_change_is_allowed(ruled):
+    approve(ruled, RULER)
+    assert ruler_edit(ruled, '"maxChangedLines": 400', '"maxChangedLines": 2000', env=CLOCK) == (0, None)
+    assert ruler_write(ruled, "{}", env=CLOCK) == (0, None)
+    assert bash(ruled, "rm docs/agents/checks.json", env=CLOCK) == (0, None)
+    assert "pre-edit:approved" in [e["kind"] for e in metrics(ruled)]
+
+
+def test_ruler_approval_does_not_cover_tests(ruled):
+    approve(ruled, RULER)
+    d, _ = decision(change_assertion(ruled)[1])
+    assert d == "ask"
+
+
+# ---------------------------------------------------------------------------
+# stop: loosened quality configs, stubs and empty catches are told to the user once
+# ---------------------------------------------------------------------------
+
+def commit_files(root, files):
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "configs")
+
+
+def quality_message(out):
+    """The stop notice: a message to the user that never blocks the turn end."""
+    assert out is not None, "expected a stop notice"
+    assert set(out) == {"systemMessage"}, out
+    message = out["systemMessage"]
+    assert message.startswith("[Okeanos] ")
+    return message
+
+
+def warns_once(root, *expected):
+    message = quality_message(stop(root)[1])
+    for text in expected:
+        assert text in message, message
+    assert stop(root) == (0, None)
+    return message
+
+
+LOOSENED_CONFIGS = [
+    ("tsconfig.json", '{\n  "compilerOptions": {\n    "strict": true,\n    "target": "es2022"\n  }\n}\n',
+     '{\n  "compilerOptions": {\n    "strict": false,\n    "target": "es2022"\n  }\n}\n', "`strict` desligado"),
+    ("tsconfig.base.json", '{\n  "compilerOptions": {\n    "noImplicitAny": true,\n    "target": "es2022"\n  }\n}\n',
+     '{\n  "compilerOptions": {\n    "target": "es2022"\n  }\n}\n', "`noImplicitAny: true` removido"),
+    (".eslintrc.json", '{\n  "rules": {\n    "no-console": "error"\n  }\n}\n',
+     '{\n  "rules": {\n    "no-console": "off"\n  }\n}\n', "regra `no-console` desligada"),
+    ("eslint.config.js", "export default [{\n  rules: {\n    'no-unused-vars': 2,\n  },\n}];\n",
+     "export default [{\n  rules: {\n    'no-unused-vars': 0,\n  },\n}];\n", "regra `no-unused-vars` desligada"),
+    ("package.json", '{\n  "scripts": {\n    "lint": "eslint . --max-warnings 0"\n  }\n}\n',
+     '{\n  "scripts": {\n    "lint": "eslint . --max-warnings 25"\n  }\n}\n', "`--max-warnings` subiu de 0 para 25"),
+    ("pyproject.toml", "[tool.mypy]\nstrict = true\n", "[tool.mypy]\nstrict = false\n", "`strict` desligado"),
+    ("mypy.ini", "[mypy]\ndisallow_untyped_defs = True\n", "[mypy]\ndisallow_untyped_defs = False\n",
+     "`disallow_untyped_defs` desligado"),
+    ("setup.cfg", "[flake8]\nextend-ignore =\n    E203\n", "[flake8]\nextend-ignore =\n    E203\n    E501\n",
+     "lista de ignore cresce: E501"),
+    ("pyproject.toml", '[tool.ruff.lint]\nignore = ["E501"]\n', '[tool.ruff.lint]\nignore = ["E501", "F401"]\n',
+     "lista de ignore cresce: F401"),
+    ("pyproject.toml", "[tool.coverage.report]\nfail_under = 90\n", "[tool.coverage.report]\nfail_under = 75\n",
+     "`fail_under` baixou de 90 para 75"),
+    ("Makefile", "test:\n\tpytest --cov=src --cov-fail-under=85\n", "test:\n\tpytest --cov=src --cov-fail-under=50\n",
+     "`fail_under` baixou de 85 para 50"),
+    ("jest.config.js", "module.exports = {\n  coverageThreshold: {\n    global: {\n      lines: 80,\n    },\n  },\n};\n",
+     "module.exports = {\n  coverageThreshold: {\n    global: {\n      lines: 60,\n    },\n  },\n};\n",
+     "cobertura `lines` baixou de 80 para 60"),
+]
+
+
+@pytest.mark.parametrize("rel,before,after,expected", LOOSENED_CONFIGS,
+                         ids=[f"{c[0]}:{c[3]}" for c in LOOSENED_CONFIGS])
+def test_loosened_quality_config_warns_once_without_blocking(repo, rel, before, after, expected):
+    commit_files(repo, {rel: before})
+    session_start(repo)
+    (repo / rel).write_text(after)
+    warns_once(repo, rel, expected)
+    assert "stop:quality" in [e["kind"] for e in metrics(repo)]
+
+
+TIGHTENED_CONFIGS = [
+    ("tsconfig.json", '{\n  "compilerOptions": {\n    "strict": false\n  }\n}\n',
+     '{\n  "compilerOptions": {\n    "strict": true\n  }\n}\n'),
+    (".eslintrc.json", '{\n  "rules": {\n    "no-console": "off"\n  }\n}\n',
+     '{\n  "rules": {\n    "no-console": "error"\n  }\n}\n'),
+    ("package.json", '{\n  "scripts": {\n    "lint": "eslint . --max-warnings 10"\n  }\n}\n',
+     '{\n  "scripts": {\n    "lint": "eslint src --max-warnings 0"\n  }\n}\n'),
+    ("setup.cfg", "[flake8]\nextend-ignore =\n    E203\n    E501\n", "[flake8]\nextend-ignore =\n    E203\n"),
+    ("pyproject.toml", "[tool.coverage.report]\nfail_under = 75\n", "[tool.coverage.report]\nfail_under = 90\n"),
+    ("pyproject.toml", '[tool.ruff.lint]\nselect = ["E"]\n', '[tool.ruff.lint]\nselect = ["E", "F", "B"]\n'),
+    ("src/settings.json", '{\n  "strict": true\n}\n', '{\n  "strict": false\n}\n'),  # not a quality config
+]
+
+
+@pytest.mark.parametrize("rel,before,after", TIGHTENED_CONFIGS, ids=[c[0] for c in TIGHTENED_CONFIGS])
+def test_tightened_or_unrelated_config_is_silent(repo, rel, before, after):
+    commit_files(repo, {rel: before})
+    session_start(repo)
+    (repo / rel).write_text(after)
+    assert stop(repo) == (0, None)
+
+
+def test_loosened_checks_json_during_the_session_warns_once(ruled):
+    session_start(ruled)
+    # written behind the editor's back (an interpreter, git checkout of an old version)
+    (ruled / RULER).write_text(json.dumps(ruler(maxChangedLines=5000), indent=2))
+    warns_once(ruled, RULER, "maxChangedLines sobe de 400 para 5000")
+
+
+def test_deleted_checks_json_warns(ruled):
+    session_start(ruled)
+    (ruled / RULER).unlink()
+    warns_once(ruled, RULER, "apagado")
+
+
+def test_tightened_checks_json_is_silent(ruled):
+    session_start(ruled)
+    (ruled / RULER).write_text(json.dumps(ruler(maxChangedLines=200), indent=2))
+    assert stop(ruled) == (0, None)
+
+
+STUBS = [
+    ("src/a.py", "def load(path):\n    raise NotImplementedError\n", "stub"),
+    ("src/a.py", "def load(path):\n    # TODO: implement\n    return None\n", "stub"),
+    ("src/a.ts", "export function load(): string {\n  throw new Error('Not implemented');\n}\n", "stub"),
+    ("src/lib.rs", "pub fn load() -> u8 {\n    todo!()\n}\n", "stub"),
+    ("src/lib.rs", "pub fn load() -> u8 {\n    unimplemented!(\"later\")\n}\n", "stub"),
+    ("src/a.go", "package a\n\nfunc Load() int {\n\tpanic(\"not implemented\")\n}\n", "stub"),
+    ("src/a.py", "def load(path):\n    pass\n", "`pass` como corpo único de `load`"),
+    ("src/a.py", "def load(path): pass\n", "`pass` como corpo único de `load`"),
+    ("src/a.ts", "export function load() {\n  try { run(); } catch (e) {}\n}\n", "catch vazio"),
+    ("src/a.ts", "export function load() {\n  try {\n    run();\n  } catch {\n  }\n}\n", "catch vazio"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except ValueError:\n        pass\n    return 1\n", "except vazio"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except: pass\n", "except vazio"),
+]
+
+
+@pytest.mark.parametrize("rel,code,expected", STUBS, ids=[f"{s[0]}:{i}" for i, s in enumerate(STUBS)])
+def test_new_stub_or_empty_catch_warns_once_without_blocking(repo, rel, code, expected):
+    session_start(repo)
+    (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+    (repo / rel).write_text(code)
+    warns_once(repo, rel, expected)
+
+
+def test_stub_added_to_a_tracked_file_warns(repo):
+    session_start(repo)
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "\n\ndef sub(a, b):\n    raise NotImplementedError\n")
+    warns_once(repo, "src/calc.py", "NotImplementedError")
+
+
+NOT_STUBS = [
+    ("tests/test_load.py", "def test_load():\n    pass\n"),  # tests may stub
+    ("src/load.test.ts", "it('loads', () => {\n  try { run(); } catch (e) {}\n});\n"),
+    ("src/a.py", "from abc import abstractmethod\n\n\nclass A:\n    @abstractmethod\n    def load(self):\n        pass\n"),
+    ("src/a.py", "def load(path):\n    pass\n    return path\n"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except ValueError:\n        log()\n"),
+    ("src/a.py", "def load():\n    try:\n        run()\n    except ValueError:\n        # optional dependency\n        pass\n"),
+    ("src/a.ts", "export function load() {\n  try { run(); } catch (e) { log(e); }\n}\n"),
+    ("src/a.ts", "export function load() {\n  try {\n    run();\n  } catch {\n    // best effort\n  }\n}\n"),
+    ("src/a.py", "def load(path):\n    # TODO: implementation notes live in docs\n    return path\n"),
+    ("README.md", "Call `raise NotImplementedError` in abstract methods.\n"),
+]
+
+
+@pytest.mark.parametrize("rel,code", NOT_STUBS, ids=[s[0] + ":" + str(i) for i, s in enumerate(NOT_STUBS)])
+def test_code_without_new_stubs_is_silent(repo, rel, code):
+    session_start(repo)
+    (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+    (repo / rel).write_text(code)
+    assert stop(repo) == (0, None)
+
+
+def test_quality_notice_is_not_repeated_when_the_diff_changes_elsewhere(repo):
+    session_start(repo)
+    (repo / "src" / "a.py").write_text("def load(path):\n    raise NotImplementedError\n")
+    quality_message(stop(repo)[1])
+    (repo / "src" / "calc.py").write_text(SRC_FILE + "\n\ndef sub(a, b):\n    return a - b\n")
+    assert stop(repo) == (0, None)
+    (repo / "src" / "b.py").write_text("def save(path):\n    raise NotImplementedError\n")
+    message = quality_message(stop(repo)[1])
+    assert "src/b.py" in message and "src/a.py" not in message
+
+
+def test_quality_notice_waits_for_a_failing_done_and_never_blocks_on_its_own(repo):
+    set_checks(repo, {"onDone": [{"name": "tests", "cmd": "test ! -f FAIL"}]})
+    session_start(repo)
+    (repo / "FAIL").write_text("x\n")
+    (repo / "src" / "a.py").write_text("def load(path):\n    raise NotImplementedError\n")
+    code, out = stop(repo)
+    assert out["decision"] == "block" and "NotImplementedError" not in out["reason"]
+    (repo / "FAIL").unlink()
+    warns_once(repo, "src/a.py")

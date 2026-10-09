@@ -1,6 +1,12 @@
 ---
 name: tdd
 description: Test-driven development. Use when the user wants to build features or fix bugs test-first, mentions "red-green-refactor", or wants integration tests.
+metadata:
+  credits:
+    skill: principle-test-behavior-not-implementation
+    author: Lauren Tan
+    license: MIT
+    url: "https://github.com/cursor/plugins/tree/main/pstack/skills/principle-test-behavior-not-implementation"
 ---
 
 # Test-Driven Development
@@ -29,6 +35,7 @@ When the shape of that interface is itself in question (how deep the module is, 
 
 - **Implementation-coupled**: mocks internal collaborators, tests private methods, or verifies through a side channel (querying the database instead of using the interface). The tell: the test breaks when you refactor but behavior hasn't changed.
 - **Tautological**: the assertion recomputes the expected value the way the code does (`expect(add(a, b)).toBe(a + b)`, a snapshot derived by hand the same way, a constant asserted equal to itself), so it passes by construction and can never disagree with the code. Expected values must come from an independent source of truth: a known-good literal, a worked example, the spec.
+- **Hollow**: the test would still pass if every function it imports returned `undefined`/`None`/empty. It observes no behavior and can't fail for a defect. Ask this of every test before you commit it; see the three hollow patterns in [tests.md](tests.md). Rewrite the assertion against a literal output, or delete the test.
 - **Horizontal slicing**: writing all tests first, then all implementation. Bulk tests verify _imagined_ behavior: you test the _shape_ of things rather than user-facing behavior, the tests go insensitive to real changes, and you commit to test structure before understanding the implementation. Work in **vertical slices** instead: one test → one implementation → repeat, each test a **tracer bullet** that responds to what the last cycle taught you.
 
 ## Rules of the loop

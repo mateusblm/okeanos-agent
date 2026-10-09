@@ -6,6 +6,7 @@ docs/agents/checks.json (written by the onboard skill); state lives under
 """
 
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -16,7 +17,7 @@ from . import approvals
 from .model import (ALLOW, ASK, BLOCK, DENY, EDIT, MULTI_EDIT, POST_TOOL, PRE_TOOL, PROMPT,
                     SESSION_START, SHELL, STOP, WRITE, Decision)
 from .packages import check_package, package_requests
-from .plumbing import fallback_dir, git, load_checks, load_state, run, save_state, state_path, tail
+from .plumbing import committed, fallback_dir, git, load_checks, load_state, run, save_state, state_path, tail
 
 MAX_BLOCKS = 3
 HANDOFF_MARK = "[Okeanos] precisa de você"
@@ -276,22 +277,27 @@ def bash_write_targets(segment, toks):
         targets += plain if tool == "mv" else plain[-1:]
     elif tool == "dd":
         targets += [a[3:] for a in args if a.startswith("of=")]
-    elif tool == "git" and args[:1] == ["rm"]:
+    elif tool == "git" and args[:1] in (["rm"], ["mv"]):
         targets += [a for a in args[1:] if not a.startswith("-")]
     return targets
 
 
+def repo_targets(root, cwd, targets):
+    """The repo-relative paths among a shell segment's targets."""
+    for target in targets:
+        hit = repo_file(root, os.path.join(cwd or root, target))
+        if hit:
+            yield hit[1]
+
+
 def committed_tests_touched(root, cwd, targets):
     checks = load_checks(root)
-    hit = []
-    for target in targets:
-        full = os.path.normpath(target if os.path.isabs(target) else os.path.join(cwd or root, target))
-        if not full.startswith(root + os.sep):
-            continue
-        rel = os.path.relpath(full, root)
-        if is_test(rel, checks) and git(root, "cat-file", "-e", f"HEAD:{rel}") is not None:
-            hit.append(rel)
-    return sorted(set(hit))
+    return sorted({rel for rel in repo_targets(root, cwd, targets) if is_test(rel, checks) and committed(root, rel)})
+
+
+def ruler_touched(root, cwd, targets):
+    """True if the shell targets include the committed checks.json."""
+    return any(rel == RULER for rel in repo_targets(root, cwd, targets)) and committed(root, RULER)
 
 
 # ---------------------------------------------------------------------------
@@ -568,6 +574,8 @@ def pre_shell(event, ctx):
                 asks.append((touched, "[Okeanos] este comando escreve, move ou apaga teste(s) já commitado(s): "
                              + ", ".join(pending or touched) + ". Testes commitados são o contrato: mudar exige a sua aprovação. "
                              "Adicionar testes novos não pede; prefira a ferramenta Edit para mudanças pontuais."))
+        if root and ruler_touched(root, event.cwd, bash_write_targets(seg, toks)):
+            asks.append(([RULER], RULER_SHELL))
         if root and toks[:2] == ["git", "commit"]:
             secrets = scan_secrets(root)
             if secrets:
@@ -638,9 +646,11 @@ def pre_edit(event, ctx):
     if not target:
         return Decision()
     full, rel = target
+    if rel == RULER:
+        return pre_edit_ruler(event, ctx, full)
     if not is_test(rel, load_checks(root)):
         return Decision()
-    if git(root, "cat-file", "-e", f"HEAD:{rel}") is None:
+    if not committed(root, rel):
         return Decision()  # not committed yet: still being written
     if event.tool == WRITE:
         try:
@@ -657,6 +667,118 @@ def pre_edit(event, ctx):
                                      f"asserções ou casos de teste:\n{detail}\nTestes commitados são o contrato: mudar exige a sua aprovação. "
                                      "Adicionar testes e mexer em imports ou helpers não pede.")], ctx)
     return Decision()
+
+
+# ---------------------------------------------------------------------------
+# pre_tool / edit, write, multi_edit: the committed checks.json is the ruler
+# ---------------------------------------------------------------------------
+
+RULER = "docs/agents/checks.json"
+RULER_LISTS = ("onDone", "onEdit")
+RULER_FIELDS = ("cmd", "ext", "timeout")  # what a check does; its name is only a label
+RULER_SHELL = ("[Okeanos] este comando escreve, move ou apaga a régua de qualidade commitada (" + RULER + "). "
+               "Pelo shell não dá para ver se ela fica mais frouxa: mudar exige a sua aprovação. "
+               "Para acrescentar checagens ou baixar o maxChangedLines, edite o arquivo com a ferramenta de edição, "
+               "que não pede.")
+MAX_VARIANTS = 8
+MAX_LISTED = 8  # items shown in one notice
+
+
+def ruler_loosening(old_text, new_text):
+    """How new_text loosens the committed checks.json old_text: [] if it doesn't.
+
+    Loosening: invalid JSON or not an object; an onDone/onEdit entry gone or with another cmd, ext or
+    timeout (entries match by those fields, in any order; renaming is fine); maxChangedLines raised,
+    not an integer, or removed when the HEAD had one; a testPatterns entry gone.
+    """
+    try:
+        new = json.loads(new_text)
+    except ValueError:
+        return ["o novo conteúdo não é JSON válido"]
+    if not isinstance(new, dict):
+        return ["o novo conteúdo não é um objeto JSON"]
+    try:
+        old = json.loads(old_text)
+    except ValueError:
+        old = {}
+    old = old if isinstance(old, dict) else {}
+
+    def as_list(data, key):
+        value = data.get(key)
+        return value if isinstance(value, list) else []
+
+    def entry_key(entry):
+        what = {f: entry.get(f) for f in RULER_FIELDS} if isinstance(entry, dict) else entry
+        return json.dumps(what, sort_keys=True)
+
+    found = []
+    for name in RULER_LISTS:
+        left = [entry_key(e) for e in as_list(new, name)]
+        for entry in as_list(old, name):
+            key = entry_key(entry)
+            if key in left:
+                left.remove(key)
+            else:
+                cmd = entry.get("cmd") if isinstance(entry, dict) else entry
+                found.append(f"{name}: `{cmd}` removido ou alterado (cmd, ext ou timeout)")
+    old_limit = old.get("maxChangedLines", DEFAULT_MAX_LINES)
+    old_limit = old_limit if isinstance(old_limit, int) and not isinstance(old_limit, bool) else DEFAULT_MAX_LINES
+    if "maxChangedLines" in new:
+        limit = new["maxChangedLines"]
+        if not isinstance(limit, int) or isinstance(limit, bool):
+            found.append(f"maxChangedLines deixa de ser um número inteiro ({limit!r})")
+        elif limit > old_limit:
+            found.append(f"maxChangedLines sobe de {old_limit} para {limit}")
+    elif "maxChangedLines" in old:
+        found.append("maxChangedLines removido")
+    patterns = as_list(new, "testPatterns")
+    found += [f"testPatterns: `{p}` removido" for p in as_list(old, "testPatterns") if p not in patterns]
+    return found
+
+
+def apply_edits(text, edits):
+    """Every text the (old, new) replacements could produce, or None if one doesn't apply.
+
+    A text found once is replaced there; found more than once, both the first occurrence and all of
+    them are tried (an editor's replace-all, a patch's first match)."""
+    texts = [text]
+    for old, new in edits:
+        if not old:
+            return None
+        produced = []
+        for t in texts:
+            count = t.count(old)
+            if not count:
+                return None
+            produced.append(t.replace(old, new))
+            if count > 1:
+                produced.append(t.replace(old, new, 1))
+        texts = list(dict.fromkeys(produced))
+        if len(texts) > MAX_VARIANTS:
+            return None
+    return texts
+
+
+def pre_edit_ruler(event, ctx, full):
+    root = ctx.root
+    head = git(root, "show", f"HEAD:{RULER}")
+    if head is None:
+        return Decision()  # not committed yet: the onboard is still writing it
+    if event.tool == WRITE:
+        news = [event.content or ""]
+    else:
+        current = file_text(root, RULER) if os.path.exists(full) else head
+        news = apply_edits(current, event.edits)
+    if news is None:
+        found = ["a edição não se aplica ao arquivo atual, então não dá para conferir o resultado"]
+    else:
+        found = list(dict.fromkeys(note for new in news for note in ruler_loosening(head, new)))
+    if not found:
+        return Decision()
+    detail = "\n".join(f"- {note}" for note in found[:MAX_LISTED])
+    return resolve_asks([([RULER], f"[Okeanos] `{RULER}` é a régua de qualidade commitada (definição de pronto), "
+                                   f"e esta mudança a afrouxa:\n{detail}\nAfrouxar a régua exige a sua aprovação. "
+                                   "Acrescentar checagens, apertar o maxChangedLines ou acrescentar testPatterns não pede.")], ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -717,43 +839,31 @@ def fingerprint(root, base, files):
 def tamper_report(root, base, checks):
     if not base:
         return []
-    notes = []
+    notes, deleted = [], set()
     for line in (git(root, "diff", "--name-status", base) or "").splitlines():
         parts = line.split("\t")
         if len(parts) >= 2 and parts[0].startswith("D") and is_test(parts[1], checks):
             notes.append(f"teste apagado: {parts[1]}")
-    diff = git(root, "diff", base, "-U0", "--no-color", timeout=20) or ""
-    current, removed, added = None, {}, {}
-    for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            current = line[6:]
-        elif current and is_test(current, checks):
-            if line.startswith("+") and not line.startswith("+++"):
-                body = line[1:].strip()
-                added.setdefault(current, []).append(body)
-                if SKIP_MARKERS.search(body):
-                    notes.append(f"teste desligado (skip/only) em {current}: {body[:80]}")
-            elif line.startswith("-") and not line.startswith("---"):
-                removed.setdefault(current, []).append(line[1:].strip())
-    for rel, lines in removed.items():
-        now = norm_code("\n".join(added.get(rel, [])))
-        gone = [l for l in lines if ASSERTION.search(l) and norm_code(l) not in now]
+            deleted.add(parts[1])
+    gone_by_file = []
+    for rel, (added, removed) in session_diff(root, base).items():
+        if rel in deleted or not is_test(rel, checks):
+            continue
+        added = [t.strip() for _, t in added]
+        notes += [f"teste desligado (skip/only) em {rel}: {body[:80]}" for body in added if SKIP_MARKERS.search(body)]
+        now = norm_code("\n".join(added))
+        gone = [t for _, t in removed if ASSERTION.search(t) and norm_code(t) not in now]
         if gone:
-            notes.append(f"{len(gone)} asserção(ões) removida(s) ou alterada(s) em {rel}")
-    return notes
+            gone_by_file.append(f"{len(gone)} asserção(ões) removida(s) ou alterada(s) em {rel}")
+    return notes + gone_by_file
 
 
 def suppression_report(root, base):
     if not base:
         return []
-    notes, current = [], None
-    for line in (git(root, "diff", base, "-U0", "--no-color", timeout=20) or "").splitlines():
-        if line.startswith("+++ b/"):
-            current = line[6:]
-        elif current and line.startswith("+") and not line.startswith("+++") and not is_doc(current):
-            body = line[1:].strip()
-            if SUPPRESSION.search(body):
-                notes.append(f"supressão nova em {current}: {body[:80]}")
+    notes = [f"supressão nova em {rel}: {t.strip()[:80]}"
+             for rel, (added, _) in session_diff(root, base).items() if not is_doc(rel)
+             for _, t in added if SUPPRESSION.search(t)]
     return notes[:10]
 
 
@@ -766,6 +876,303 @@ def changed_lines(root, base):
     return total
 
 
+# ---------------------------------------------------------------------------
+# stop: loosened quality configs, stubs and empty catches (told to the user once, never blocks)
+# ---------------------------------------------------------------------------
+
+TS_CONFIG = re.compile(r"(^|/)[jt]sconfig[^/]*\.json$")
+ESLINT_CONFIG = re.compile(r"(^|/)(\.eslintrc(\.(json|js|cjs|mjs|ya?ml))?|eslint\.config\.[cm]?[jt]s|biome\.jsonc?)$")
+LINT_CONFIG = re.compile(r"(^|/)(pyproject\.toml|setup\.cfg|tox\.ini|\.flake8|\.?mypy\.ini|\.?ruff\.toml|\.?pylintrc|"
+                         r"\.coveragerc|\.golangci\.(ya?ml|toml))$")
+COVERAGE_CONFIG = re.compile(r"(^|/)((jest|vitest|vite)\.config\.[cm]?[jt]s|jest\.config\.json|package\.json|"
+                             r"\.nycrc(\.json|\.ya?ml)?|\.c8rc(\.json)?)$")
+DATA_FILE = re.compile(r"\.(json|jsonc|ya?ml|toml|ini|cfg|lock|csv|tsv|xml|svg|html?|css|scss|snap)$")
+# Booleans whose false (or removal, when they were true) turns a type checker or linter down.
+STRICT_KEY = re.compile(r"strict\w*|alwaysStrict|noImplicit\w+|noUnused\w+|noFallthroughCasesInSwitch|"
+                        r"noUncheckedIndexedAccess|exactOptionalPropertyTypes|useUnknownInCatchVariables|"
+                        r"noPropertyAccessFromIndexSignature|disallow_\w+|check_untyped_defs|no_implicit_\w+|warn_\w+")
+# Booleans whose true turns it down.
+LOOSE_KEY = re.compile(r"ignore_errors|allowUnreachableCode|allowUnusedLabels|suppressImplicitAnyIndexErrors")
+BOOL_LINE = re.compile(r"""^\s*["']?(?P<key>[\w.-]+)["']?\s*[=:]\s*(?P<val>true|false|yes|no|on|off|1|0)\s*,?\s*(#.*|//.*)?$""",
+                       re.I)
+TRUE = ("true", "yes", "on", "1")
+LINT_OFF = re.compile(r"""^\s*["']?(?P<rule>[@\w][\w@/.-]*)["']?\s*:\s*\[?\s*(["']?off["']?|0)\s*([,\]}]|$|#|//)""")
+KEY_LINE = re.compile(r"""^\s*["']?(?P<key>[\w.*/-]+)["']?\s*[=:]""")
+SECTION = re.compile(r"^\s*\[+(?P<name>[^\]]+)\]+\s*$")
+IGNORE_KEY = re.compile(r"(^|[-_])((per[-_]file[-_])?ignores?|disable(d|[-_]error[-_]codes?)?)$", re.I)
+ITEM = re.compile(r"[A-Za-z0-9_][\w./*-]*")
+# (label, pattern with the number, file filter or None for any file, True when a higher number is looser)
+LIMITS = [
+    ("`fail_under`", re.compile(r"fail[-_]under[\"']?\s*(?:[=:]\s*|\s+)(-?\d+(?:\.\d+)?)"), None, False),
+    ("`--max-warnings`", re.compile(r"--max-warnings(?:=|\s+)(-?\d+)"), None, True),
+] + [(f"cobertura `{key}`", re.compile(r"""(?<![\w-])["']?""" + key + r"""["']?\s*:\s*(\d+(?:\.\d+)?)"""),
+      COVERAGE_CONFIG, False) for key in ("branches", "functions", "lines", "statements")]
+
+STUB = re.compile(r"\bTODO\b\W{0,3}implement(ed)?\b|\braise\s+NotImplementedError\b|"
+                  r"\bthrow\s+new\s+Error\(\s*[\"'`]not\s+(yet\s+)?implemented|\bNotImplementedException\b|"
+                  r"\bunimplemented!\s*\(|\btodo!\s*\(|\bpanic\(\s*\"not\s+(yet\s+)?implemented", re.I)
+EMPTY_CATCH = re.compile(r"\bcatch\s*(\([^)]*\))?\s*\{\s*\}|\.catch\(\s*(\(\s*\w*\s*\)|\w+)\s*=>\s*\{\s*\}\s*\)")
+OPEN_CATCH = re.compile(r"\bcatch\s*(\([^)]*\))?\s*\{\s*$")
+PY_DEF = re.compile(r"^(?P<ind>\s*)(async\s+)?def\s+(?P<name>\w+)")
+PY_EXCEPT = re.compile(r"^(?P<ind>\s*)except\b[^:]*:\s*(?P<rest>.*)$")
+ABSTRACT = re.compile(r"@(abc\.)?(abstractmethod|overload)\b|@typing\.overload\b")
+
+
+def session_diff(root, base):
+    """{path: (added, removed)} of the tracked changes since base, uncommitted included,
+    each a list of (line number, text): new numbering for added lines, old for removed ones."""
+    files, added, removed, old_n, new_n = {}, None, None, 0, 0
+    old_path = None
+    for line in (git(root, "diff", base, "-U0", "--no-color", "--no-ext-diff", timeout=20) or "").splitlines():
+        if line.startswith("--- "):
+            old_path = line[6:] if line.startswith("--- a/") else None
+        elif line.startswith("+++ "):
+            path = line[6:] if line.startswith("+++ b/") else old_path
+            added, removed = files.setdefault(path, ([], [])) if path else (None, None)
+        elif line.startswith("@@"):
+            m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", line)
+            if m:
+                old_n, new_n = int(m.group(1)), int(m.group(2))
+        elif added is not None and line.startswith("+"):
+            added.append((new_n, line[1:]))
+            new_n += 1
+        elif added is not None and line.startswith("-"):
+            removed.append((old_n, line[1:]))
+            old_n += 1
+    return files
+
+
+def norm_line(text):
+    """norm_code for one diff line, also ignoring the trailing comma a reordered list adds or drops."""
+    return norm_code(text.strip().rstrip(","))
+
+
+def net_lines(added, removed):
+    """The added and removed lines that aren't just moved or reformatted within the file."""
+    def minus(lines, other):
+        left = [norm_line(t) for _, t in other]
+        out = []
+        for n, t in lines:
+            if norm_line(t) in left:
+                left.remove(norm_line(t))
+            elif t.strip():
+                out.append((n, t))
+        return out
+    return minus(added, removed), minus(removed, added)
+
+
+def bool_settings(lines):
+    out = {}
+    for _, text in lines:
+        m = BOOL_LINE.match(text)
+        if m:
+            out[m.group("key").split(".")[-1]] = m.group("val").lower() in TRUE
+    return out
+
+
+def strictness_notes(rel, added, removed):
+    now, before = bool_settings(added), bool_settings(removed)
+    notes = []
+    for key, on in now.items():
+        if STRICT_KEY.fullmatch(key) and not on:
+            notes.append(f"{rel}: `{key}` desligado")
+        elif LOOSE_KEY.fullmatch(key) and on and not before.get(key):
+            notes.append(f"{rel}: `{key}` ligado")
+    notes += [f"{rel}: `{key}: true` removido" for key, on in before.items()
+              if STRICT_KEY.fullmatch(key) and on and key not in now]
+    return notes
+
+
+def ignore_items(lines, text):
+    """Items of the ignore/disable lists among lines (numbered in text): a line whose key, parent key
+    (less indented, above it) or section is an ignore list."""
+    rows = text.splitlines()
+    items = set()
+    for n, line in lines:
+        body = re.sub(r"\s(#|//).*$", "", line)
+        own = KEY_LINE.match(body)
+        if own and IGNORE_KEY.search(own.group("key").split(".")[-1]):
+            items.update(ITEM.findall(body[own.end():]))
+            continue
+        indent = len(line) - len(line.lstrip())
+        context = None
+        for prev in reversed(rows[:max(n - 1, 0)]):
+            section = SECTION.match(prev)
+            if section:
+                context = context or section.group("name").split(".")[-1]
+                break
+            key = KEY_LINE.match(prev)
+            if context is None and key and len(prev) - len(prev.lstrip()) < indent:
+                context = key.group("key").split(".")[-1]
+        if context and IGNORE_KEY.search(context.strip("\"' ")):
+            items.update(ITEM.findall(body))
+    return items
+
+
+def file_text(root, rel, rev=None):
+    if rev:
+        return git(root, "show", f"{rev}:{rel}") or ""
+    try:
+        with open(os.path.join(root, rel), errors="ignore") as f:
+            return f.read(1_000_000)
+    except OSError:
+        return ""
+
+
+def limit_value(text):
+    value = float(text)
+    return float("inf") if value < 0 else value
+
+
+def limit_text(value):
+    return "-1" if value == float("inf") else f"{value:g}"
+
+
+def config_notes(root, base, diff):
+    notes, limits = [], {}
+    for rel, (added, removed) in diff.items():
+        if is_doc(rel) or re.search(LOCKFILES, rel):
+            continue
+        added, removed = net_lines(added, removed)
+        if TS_CONFIG.search(rel) or LINT_CONFIG.search(rel):
+            notes += strictness_notes(rel, added, removed)
+        if ESLINT_CONFIG.search(rel):
+            was_off = {m.group("rule") for _, t in removed for m in [LINT_OFF.match(t)] if m}
+            notes += [f"{rel}: regra `{m.group('rule')}` desligada" for _, t in added
+                      for m in [LINT_OFF.match(t)] if m and m.group("rule") not in was_off]
+        if LINT_CONFIG.search(rel):
+            grown = (ignore_items(added, file_text(root, rel))
+                     - ignore_items(removed, file_text(root, rel, base)))
+            if grown:
+                notes.append(f"{rel}: lista de ignore cresce: " + ", ".join(sorted(grown)[:MAX_LISTED]))
+        for label, pattern, only, _ in LIMITS:
+            if only and not only.search(rel):
+                continue
+            for side, lines in (("new", added), ("old", removed)):
+                for _, text in lines:
+                    for m in pattern.finditer(text):
+                        limits.setdefault(label, {"new": [], "old": []})[side].append((limit_value(m.group(1)), rel))
+    for label, _, _, higher_is_looser in LIMITS:
+        seen = limits.get(label)
+        if not seen or not seen["old"]:
+            continue
+        old, old_rel = (max if higher_is_looser else min)(seen["old"])
+        if not seen["new"]:
+            notes.append(f"{old_rel}: {label} removido")
+            continue
+        new, rel = (max if higher_is_looser else min)(seen["new"])
+        if (new > old) if higher_is_looser else (new < old):
+            notes.append(f"{rel}: {label} " + ("subiu" if higher_is_looser else "baixou")
+                         + f" de {limit_text(old)} para {limit_text(new)}")
+    return notes
+
+
+def ruler_notes(root, base):
+    """The committed checks.json loosened since the session started, however it was written."""
+    old = git(root, "show", f"{base}:{RULER}")
+    if old is None:
+        return []
+    if not os.path.isfile(os.path.join(root, RULER)):
+        return [f"{RULER}: apagado"]
+    return [f"{RULER}: {note}" for note in ruler_loosening(old, file_text(root, RULER))]
+
+
+def block_end(lines, i, indent):
+    """True if the python block whose last line is lines[i] ends there: the next added line is not
+    contiguous, or is a dedent."""
+    if i + 1 >= len(lines) or lines[i + 1][0] != lines[i][0] + 1:
+        return True
+    nxt = lines[i + 1][1]
+    return not nxt.strip() or len(nxt) - len(nxt.lstrip()) <= indent
+
+
+def next_body(lines, i):
+    """Index of the line after lines[i] if it is contiguous, else None."""
+    if i + 1 < len(lines) and lines[i + 1][0] == lines[i][0] + 1:
+        return i + 1
+    return None
+
+
+def only_pass(lines, i, indent):
+    """True if the python block opened by lines[i] (`...: pass`, or `...:` and then `pass`) holds only
+    `pass` and ends there."""
+    if re.search(r":\s*pass\s*$", lines[i][1]):
+        body = i
+    elif lines[i][1].rstrip().endswith(":"):
+        body = next_body(lines, i)
+        if body is None or lines[body][1].strip() != "pass":
+            return False
+    else:
+        return False
+    return block_end(lines, body, indent)
+
+
+def python_stub_notes(rel, lines):
+    """New defs whose only body is `pass` and new `except` blocks that only `pass` (a comment counts as
+    a reason and silences it; so do @abstractmethod and @overload)."""
+    notes = []
+    for i, (_, text) in enumerate(lines):
+        if "#" in text:
+            continue
+        d, e = PY_DEF.match(text), PY_EXCEPT.match(text)
+        if d and not any(ABSTRACT.search(t) for _, t in lines[max(i - 3, 0):i]):
+            j = i  # a signature may span lines: find the one that opens the body
+            while j is not None and j - i < 10 and not lines[j][1].rstrip().endswith(":") \
+                    and not re.search(r":\s*pass\s*$", lines[j][1]):
+                j = next_body(lines, j)
+            if j is not None and only_pass(lines, j, len(d.group("ind"))):
+                notes.append(f"{rel}: `pass` como corpo único de `{d.group('name')}`")
+        elif e and only_pass(lines, i, len(e.group("ind"))):
+            notes.append(f"{rel}: except vazio `{text.strip()[:60]}`")
+    return notes
+
+
+def stub_notes(root, diff, checks):
+    """Stubs and empty catches in the added lines of non-test code files, untracked files included."""
+    sources = {rel: added for rel, (added, _) in diff.items()}
+    for rel in (git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines()[:500]:
+        text = file_text(root, rel)
+        sources[rel] = list(enumerate(text.splitlines(), 1))
+    notes = []
+    for rel, lines in sorted(sources.items()):
+        if not lines or is_doc(rel) or is_test(rel, checks) or DATA_FILE.search(rel) or re.search(LOCKFILES, rel):
+            continue
+        moved = {norm_line(t) for _, t in diff.get(rel, ([], []))[1]}
+        for i, (_, text) in enumerate(lines):
+            if norm_line(text) in moved:
+                continue
+            if STUB.search(text):
+                if any(ABSTRACT.search(t) for _, t in lines[max(i - 3, 0):i]):
+                    continue
+                notes.append(f"{rel}: stub `{text.strip()[:60]}`")
+            elif EMPTY_CATCH.search(text):
+                notes.append(f"{rel}: catch vazio `{text.strip()[:60]}`")
+            elif OPEN_CATCH.search(text):
+                j = next_body(lines, i)
+                if j is not None and lines[j][1].strip().startswith("}"):
+                    notes.append(f"{rel}: catch vazio `{text.strip()[:60]}`")
+        if rel.endswith(".py"):
+            notes += python_stub_notes(rel, lines)
+    return notes
+
+
+def quality_notice(root, base, checks, state, ctx):
+    """The new findings as one block for the user ('' when there's none). Each finding is told once."""
+    if not base:
+        return ""
+    diff = session_diff(root, base)
+    notes = list(dict.fromkeys(ruler_notes(root, base) + config_notes(root, base, diff) + stub_notes(root, diff, checks)))
+    shown = state.get("quality_shown", [])
+    fresh = [n for n in notes if hashlib.sha256(n.encode()).hexdigest()[:16] not in shown]
+    if not fresh:
+        return ""
+    state["quality_shown"] = (shown + [hashlib.sha256(n.encode()).hexdigest()[:16] for n in fresh])[-500:]
+    for note in fresh:
+        ctx.log("stop:quality", note)
+    return ("qualidade afrouxada ou código incompleto nesta sessão (confira se foi de propósito):\n- "
+            + "\n- ".join(fresh[:15]))
+
+
 def stop(event, ctx):
     root = ctx.root
     path = state_path(root, event.session_id)
@@ -773,10 +1180,16 @@ def stop(event, ctx):
         return Decision()
     state = load_state(path)
     base = state.get("start_head") or git(root, "rev-parse", "HEAD")
-    files = [f for f in changed_files(root, base) if not is_doc(f)]
-    if not files:
-        return Decision()
+    changed = changed_files(root, base)
+    files = [f for f in changed if not is_doc(f)]
     checks = load_checks(root)
+    if not files:
+        # Docs only, but the ruler (docs/agents/checks.json) is a doc too.
+        notice = quality_notice(root, base, checks, state, ctx) if changed else ""
+        if notice:
+            save_state(path, state)
+            return Decision(message="[Okeanos] " + notice)
+        return Decision()
     fp = fingerprint(root, base, files)
     if fp in (state.get("passed_fp"), state.get("escalated_fp")):
         return Decision()
@@ -794,10 +1207,12 @@ def stop(event, ctx):
         # The agent says the fix needs a user decision: stop now, but make the failure visible.
         state["blocks"] = 0
         state["escalated_fp"] = fp
+        notice = quality_notice(root, base, checks, state, ctx)
         save_state(path, state)
         ctx.log("stop:handoff", failures[0].splitlines()[0])
         return Decision(message="[Okeanos] o agente parou com a definição de pronto falhando porque a correção "
-                                "depende de uma decisão sua:\n\n" + "\n\n".join(failures))
+                                "depende de uma decisão sua:\n\n" + "\n\n".join(failures)
+                                + ("\n\n" + notice if notice else ""))
 
     if failures:
         state["blocks"] = state.get("blocks", 0) + 1
@@ -806,9 +1221,11 @@ def stop(event, ctx):
             ctx.log("stop:escalate", failures[0].splitlines()[0])
             state["blocks"] = 0
             state["escalated_fp"] = fp
+            notice = quality_notice(root, base, checks, state, ctx)
             save_state(path, state)
             return Decision(message="[Okeanos] a definição de pronto falhou "
-                                    f"{MAX_BLOCKS} vezes seguidas e precisa de você:\n\n" + "\n\n".join(failures))
+                                    f"{MAX_BLOCKS} vezes seguidas e precisa de você:\n\n" + "\n\n".join(failures)
+                                    + ("\n\n" + notice if notice else ""))
         save_state(path, state)
         return Decision(BLOCK, "[Okeanos] definição de pronto: corrija antes de encerrar "
                                f"(tentativa {state['blocks']}/{MAX_BLOCKS}). Se a correção depende de uma decisão do usuário "
@@ -839,11 +1256,14 @@ def stop(event, ctx):
     if state.get("passed_fp") != fp:
         ctx.log("stop:pass", f"{size} linhas")
     state["passed_fp"] = fp
+    notice = quality_notice(root, base, checks, state, ctx)
     save_state(path, state)
     if tamper:
         warnings.append("testes alterados: " + "; ".join(tamper))
     if suppressions:
         warnings.append(f"{len(suppressions)} supressão(ões) de lint/tipo nova(s)")
+    if notice:
+        warnings.append(notice)
     if warnings:
         return Decision(message="[Okeanos] " + "\n".join(warnings))
     return Decision()
