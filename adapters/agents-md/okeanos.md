@@ -94,7 +94,7 @@ Onde a regra pede aprovação e o hook do agente não consegue perguntar, a aç�
 - **Testes commitados são o contrato.** Editar ou apagar linhas de um teste já commitado pede aprovação do usuário; adicionar testes é livre. Nunca afrouxe um teste para passar. Mudanças em testes existentes aparecem para o usuário no fim do turno.
 - **Format e lint a cada edição**, com os comandos `onEdit`. Se acusar erro, corrija na hora.
 - **Supressões novas** (`eslint-disable`, `@ts-ignore`, `as any`, `# type: ignore`, `# noqa`...) são apontadas no fim do turno: só use com motivo forte, e diga o motivo ao usuário.
-- **Métricas.** Cada bloqueio, pedido de aprovação e falha fica registrado em `.git/okeanos/metrics.jsonl`; a `retro` usa esse registro.
+- **Métricas.** Cada bloqueio, pedido de aprovação e falha fica registrado em `.git/okeanos/metrics.jsonl` (ou numa pasta de reserva no TMPDIR, quando o `.git` não aceita escrita); `okeanos metrics` junta os dois, e a `retro` usa esse registro.
 - **Comandos perigosos são bloqueados**: `--no-verify`, force push, `rm -r` fora do repositório, commit com segredo. Pacote que não existe no registry é bloqueado; pacote novo, pouco usado ou de nome parecido com um popular pede confirmação.
 - **Tamanho.** Acima de `maxChangedLines` linhas alteradas na sessão, o usuário recebe um aviso para dividir o trabalho. Planeje tickets de ~200 a 400 linhas.
 
