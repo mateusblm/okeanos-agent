@@ -185,6 +185,7 @@ O agente chama a maioria das skills sozinho, conforme a rota. As marcadas como *
 - **[afk](skills/engineering/afk/SKILL.md)**: implementa os tickets em sandboxes Docker paralelas enquanto você está fora.
 - **[tdd](skills/engineering/tdd/SKILL.md)**: desenvolvimento guiado por testes, red-green-refactor.
 - **[diagnosing-bugs](skills/engineering/diagnosing-bugs/SKILL.md)**: loop de diagnóstico para bugs difíceis e regressões de desempenho.
+- **[performance](skills/engineering/performance/SKILL.md)**: medir, identificar, corrigir, verificar e proteger. Muda uma coisa por vez, reverte o ganho que não passa do ruído e nunca dá número sem medição.
 - **[mutation-check](skills/engineering/mutation-check/SKILL.md)**: teste de mutação restrito às linhas alteradas. Cada mutante sobrevivente vira um teste.
 - **[property-tests](skills/engineering/property-tests/SKILL.md)**: testes baseados em propriedades derivados dos invariantes da spec, escritos por um agente que vê só a spec e a interface pública.
 - **[threat-model](skills/engineering/threat-model/SKILL.md)**: modelo de ameaças em até 15 linhas, com STRIDE. Cada mitigação vira critério de aceitação testável.
