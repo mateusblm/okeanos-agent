@@ -36,7 +36,7 @@ Os hooks entram por [`hooks/run`](../hooks/run) `--agent <agente> <hook>`, que c
 | Início da sessão | Pede o `onboard` se faltar arquivo de contexto ou `checks.json`. Registra o commit inicial da sessão. |
 | Primeira mensagem | Lembra o agente de classificar e anunciar a rota. |
 | Antes de um comando no shell | Exige aprovação para push, PR e merge na branch padrão. Bloqueia `--no-verify`, force push e `rm -r` fora do repo. Bloqueia commit com segredo. Checa pacotes no registry. Exige aprovação para escritas do shell em testes commitados. |
-| Antes de uma edição | Exige aprovação para alterar, remover ou desligar asserções de testes commitados. |
+| Antes de uma edição | Exige aprovação para alterar, remover ou desligar asserções de testes commitados, e para afrouxar o `docs/agents/checks.json` commitado: tirar ou mudar comando de `onDone`/`onEdit`, subir ou tirar `maxChangedLines`, tirar `testPatterns`, JSON inválido; acrescentar ou apertar é livre, e pelo shell qualquer escrita nele pede (alvo `docs/agents/checks.json`). |
 | Depois de uma edição | Roda os comandos `onEdit` no arquivo editado e devolve as falhas ao agente. |
 | Fim do turno | Roda os comandos `onDone`. Aponta testes apagados, asserções removidas, testes desligados e supressões novas de lint ou tipo. Avisa quando o diff passa de `maxChangedLines`. |
 

@@ -6,6 +6,7 @@ docs/agents/checks.json (written by the onboard skill); state lives under
 """
 
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -276,22 +277,31 @@ def bash_write_targets(segment, toks):
         targets += plain if tool == "mv" else plain[-1:]
     elif tool == "dd":
         targets += [a[3:] for a in args if a.startswith("of=")]
-    elif tool == "git" and args[:1] == ["rm"]:
+    elif tool == "git" and args[:1] in (["rm"], ["mv"]):
         targets += [a for a in args[1:] if not a.startswith("-")]
     return targets
 
 
-def committed_tests_touched(root, cwd, targets):
-    checks = load_checks(root)
-    hit = []
+def repo_targets(root, cwd, targets):
+    """The repo-relative paths among a shell segment's targets."""
     for target in targets:
         full = os.path.normpath(target if os.path.isabs(target) else os.path.join(cwd or root, target))
-        if not full.startswith(root + os.sep):
-            continue
-        rel = os.path.relpath(full, root)
-        if is_test(rel, checks) and git(root, "cat-file", "-e", f"HEAD:{rel}") is not None:
-            hit.append(rel)
-    return sorted(set(hit))
+        if full.startswith(root + os.sep):
+            yield os.path.relpath(full, root)
+
+
+def committed(root, rel):
+    return git(root, "cat-file", "-e", f"HEAD:{rel}") is not None
+
+
+def committed_tests_touched(root, cwd, targets):
+    checks = load_checks(root)
+    return sorted({rel for rel in repo_targets(root, cwd, targets) if is_test(rel, checks) and committed(root, rel)})
+
+
+def ruler_touched(root, cwd, targets):
+    """True if the shell targets include the committed checks.json."""
+    return any(rel == RULER for rel in repo_targets(root, cwd, targets)) and committed(root, RULER)
 
 
 # ---------------------------------------------------------------------------
@@ -568,6 +578,8 @@ def pre_shell(event, ctx):
                 asks.append((touched, "[Okeanos] este comando escreve, move ou apaga teste(s) já commitado(s): "
                              + ", ".join(pending or touched) + ". Testes commitados são o contrato: mudar exige a sua aprovação. "
                              "Adicionar testes novos não pede; prefira a ferramenta Edit para mudanças pontuais."))
+        if root and ruler_touched(root, event.cwd, bash_write_targets(seg, toks)):
+            asks.append(([RULER], RULER_SHELL))
         if root and toks[:2] == ["git", "commit"]:
             secrets = scan_secrets(root)
             if secrets:
@@ -638,6 +650,8 @@ def pre_edit(event, ctx):
     if not target:
         return Decision()
     full, rel = target
+    if rel == RULER:
+        return pre_edit_ruler(event, ctx, full)
     if not is_test(rel, load_checks(root)):
         return Decision()
     if git(root, "cat-file", "-e", f"HEAD:{rel}") is None:
@@ -657,6 +671,121 @@ def pre_edit(event, ctx):
                                      f"asserções ou casos de teste:\n{detail}\nTestes commitados são o contrato: mudar exige a sua aprovação. "
                                      "Adicionar testes e mexer em imports ou helpers não pede.")], ctx)
     return Decision()
+
+
+# ---------------------------------------------------------------------------
+# pre_tool / edit, write, multi_edit: the committed checks.json is the ruler
+# ---------------------------------------------------------------------------
+
+RULER = "docs/agents/checks.json"
+RULER_LISTS = ("onDone", "onEdit")
+RULER_FIELDS = ("cmd", "ext", "timeout")  # what a check does; its name is only a label
+RULER_SHELL = ("[Okeanos] este comando escreve, move ou apaga a régua de qualidade commitada (" + RULER + "). "
+               "Pelo shell não dá para ver se ela fica mais frouxa: mudar exige a sua aprovação. "
+               "Para acrescentar checagens ou baixar o maxChangedLines, edite o arquivo com a ferramenta de edição, "
+               "que não pede.")
+MAX_VARIANTS = 8
+
+
+def ruler_loosening(old_text, new_text):
+    """How new_text loosens the committed checks.json old_text: [] if it doesn't.
+
+    Loosening: invalid JSON or not an object; an onDone/onEdit entry gone or with another cmd, ext or
+    timeout (entries match by those fields, in any order; renaming is fine); maxChangedLines raised,
+    not an integer, or removed when the HEAD had one; a testPatterns entry gone.
+    """
+    try:
+        new = json.loads(new_text)
+    except ValueError:
+        return ["o novo conteúdo não é JSON válido"]
+    if not isinstance(new, dict):
+        return ["o novo conteúdo não é um objeto JSON"]
+    try:
+        old = json.loads(old_text)
+    except ValueError:
+        old = {}
+    old = old if isinstance(old, dict) else {}
+
+    def as_list(data, key):
+        value = data.get(key)
+        return value if isinstance(value, list) else []
+
+    def entry_key(entry):
+        what = {f: entry.get(f) for f in RULER_FIELDS} if isinstance(entry, dict) else entry
+        return json.dumps(what, sort_keys=True)
+
+    found = []
+    for name in RULER_LISTS:
+        left = [entry_key(e) for e in as_list(new, name)]
+        for entry in as_list(old, name):
+            key = entry_key(entry)
+            if key in left:
+                left.remove(key)
+            else:
+                cmd = entry.get("cmd") if isinstance(entry, dict) else entry
+                found.append(f"{name}: `{cmd}` removido ou alterado (cmd, ext ou timeout)")
+    old_limit = old.get("maxChangedLines", DEFAULT_MAX_LINES)
+    old_limit = old_limit if isinstance(old_limit, int) and not isinstance(old_limit, bool) else DEFAULT_MAX_LINES
+    if "maxChangedLines" in new:
+        limit = new["maxChangedLines"]
+        if not isinstance(limit, int) or isinstance(limit, bool):
+            found.append(f"maxChangedLines deixa de ser um número inteiro ({limit!r})")
+        elif limit > old_limit:
+            found.append(f"maxChangedLines sobe de {old_limit} para {limit}")
+    elif "maxChangedLines" in old:
+        found.append("maxChangedLines removido")
+    patterns = as_list(new, "testPatterns")
+    found += [f"testPatterns: `{p}` removido" for p in as_list(old, "testPatterns") if p not in patterns]
+    return found
+
+
+def apply_edits(text, edits):
+    """Every text the (old, new) replacements could produce, or None if one doesn't apply.
+
+    A text found once is replaced there; found more than once, both the first occurrence and all of
+    them are tried (an editor's replace-all, a patch's first match)."""
+    texts = [text]
+    for old, new in edits:
+        if not old:
+            return None
+        produced = []
+        for t in texts:
+            count = t.count(old)
+            if not count:
+                return None
+            produced.append(t.replace(old, new))
+            if count > 1:
+                produced.append(t.replace(old, new, 1))
+        texts = list(dict.fromkeys(produced))
+        if len(texts) > MAX_VARIANTS:
+            return None
+    return texts
+
+
+def pre_edit_ruler(event, ctx, full):
+    root = ctx.root
+    head = git(root, "show", f"HEAD:{RULER}")
+    if head is None:
+        return Decision()  # not committed yet: the onboard is still writing it
+    if event.tool == WRITE:
+        news = [event.content or ""]
+    else:
+        try:
+            with open(full, errors="ignore") as f:
+                current = f.read()
+        except OSError:
+            current = head
+        news = apply_edits(current, event.edits)
+    if news is None:
+        found = ["a edição não se aplica ao arquivo atual, então não dá para conferir o resultado"]
+    else:
+        found = list(dict.fromkeys(note for new in news for note in ruler_loosening(head, new)))
+    if not found:
+        return Decision()
+    detail = "\n".join(f"- {note}" for note in found[:8])
+    return resolve_asks([([RULER], f"[Okeanos] `{RULER}` é a régua de qualidade commitada (definição de pronto), "
+                                   f"e esta mudança a afrouxa:\n{detail}\nAfrouxar a régua exige a sua aprovação. "
+                                   "Acrescentar checagens, apertar o maxChangedLines ou acrescentar testPatterns não pede.")], ctx)
 
 
 # ---------------------------------------------------------------------------
