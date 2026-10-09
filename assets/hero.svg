@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="220" viewBox="0 0 880 220" role="img" aria-label="Okeanos: o fluxo contínuo do pedido ao push">
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0b2540"/>
+      <stop offset="1" stop-color="#06131f"/>
+    </linearGradient>
+  </defs>
+  <rect width="880" height="220" rx="16" fill="url(#sea)"/>
+  <g fill="none" stroke-linecap="round">
+    <path d="M0 150 C 110 120, 220 180, 330 150 S 550 120, 660 150 S 820 180, 880 150" stroke="#1f6f9f" stroke-width="3" opacity="0.55"/>
+    <path d="M0 172 C 110 142, 220 202, 330 172 S 550 142, 660 172 S 820 202, 880 172" stroke="#2b8fc4" stroke-width="3" opacity="0.4"/>
+    <path d="M0 194 C 110 164, 220 224, 330 194 S 550 164, 660 194 S 820 224, 880 194" stroke="#47b3e6" stroke-width="3" opacity="0.25"/>
+  </g>
+  <text x="440" y="86" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="56" letter-spacing="10" fill="#e8f4fb">OKEANOS</text>
+  <text x="440" y="120" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', sans-serif" font-size="17" fill="#9fc9e0">pedido → rota → G1 → código com testes → review → G2 → push</text>
+</svg>
