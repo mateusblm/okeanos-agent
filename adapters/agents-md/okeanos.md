@@ -20,18 +20,25 @@ Antes de agir, inclusive antes do bootstrap, classifique a demanda numa rota e a
 | Rota | Quando | Fluxo |
 | :- | :- | :- |
 | **Direto** | Pergunta, explicação, exploração, ou mudança trivial: typo, rename local, ajuste de config, sem decisão de design | Responda ou faça, verifique, pronto. Sem gates, sem anúncio de rota para perguntas puras. |
-| **Bug** | Algo quebrado | Bug óbvio: skill `tdd` com teste de regressão que fica vermelho primeiro. Bug difícil, intermitente ou regressão: skill `diagnosing-bugs`. Depois `code-review` → `as-built` (só se o fix mudou comportamento documentado) → **G2**. |
-| **Feature** | Mudança que cabe numa sessão | `grill-with-docs` → **G1** → `implement` (que dirige `tdd` e fecha com `code-review`) → `as-built` → **G2** |
-| **Feature grande** | Várias sessões, mas o caminho é claro | `grill-with-docs` → `to-spec` → `to-tickets` → **G1** → execução (ver abaixo) → `mutation-check` (e `property-tests` se há lógica de domínio) → `code-review` → `as-built` → **G2** |
+| **Bug** | Algo quebrado | Bug óbvio: skill `tdd` com teste de regressão que fica vermelho primeiro. Bug difícil, intermitente ou regressão: skill `diagnosing-bugs`. Depois `code-review` → `as-built` se o usuário quiser (ver abaixo) → **G2**. |
+| **Feature** | Mudança que cabe numa sessão | `grill-with-docs` → **G1** → `implement` (que dirige `tdd` e fecha com `code-review`) → `as-built` se o usuário quiser → **G2** |
+| **Feature grande** | Várias sessões, mas o caminho é claro | `grill-with-docs` → `to-spec` → `to-tickets` → **G1** → execução (ver abaixo) → `mutation-check` (e `property-tests` se há lógica de domínio) → `code-review` → `as-built` se o usuário quiser → **G2** |
 | **Épico** | Grande e nebuloso, o caminho até o destino ainda não é visível | `wayfinder` (só decisões, não entrega). Quando o mapa clarear, siga para `to-spec` como em Feature grande. |
 | **Triagem** | Issues ou pedidos brutos que você não criou | `triage` |
 
 **Execução da Feature grande.** No G1, junto da aprovação, pergunte como executar:
 
 - **Na sessão**: `implement-spec` (subagentes em paralelo aqui), ou `implement` por ticket, limpando o contexto da conversa entre eles.
-- **AFK**: skill `afk`. Os tickets rodam em sandboxes Docker em paralelo enquanto o usuário está fora; na volta você lê o relatório, roda `mutation-check`, `code-review` e `as-built`, e segue para o G2. Para features críticas, ofereça ligar os testes de aceitação ocultos do `afk`.
+- **AFK**: skill `afk`. Os tickets rodam em sandboxes Docker em paralelo enquanto o usuário está fora; na volta você lê o relatório, roda `mutation-check` e `code-review`, oferece o `as-built`, e segue para o G2. Para features críticas, ofereça ligar os testes de aceitação ocultos do `afk`.
 
 Nunca escolha AFK sem o usuário pedir. Ofereça AFK só na Feature grande, com tickets em `.scratch/`.
+
+**Docs do `as-built` são opcionais.** Gerar a arquitetura e os diagramas custa bastante. Depois do `code-review`, pergunte numa linha se o usuário quer, com a sua recomendação e o motivo:
+
+- **Recomende gerar** quando a mudança altera a arquitetura: componente, serviço ou módulo novo, fluxo novo entre partes, integração externa, mudança de dados persistidos, ou quando o repo ainda não tem `docs/architecture.md` e a mudança é grande.
+- **Recomende pular** em ajustes internos, bugs que não mudam comportamento documentado, refatorações locais, testes e configuração.
+
+Só rode o `as-built` com o "sim" do usuário. Se ele disser não, siga para o G2 sem docs; se o repo tem docs que a mudança deixou desatualizados, aponte isso numa linha no G2 mesmo assim.
 
 Desvios que entram em qualquer rota quando surgem:
 
@@ -61,14 +68,14 @@ Gates são paradas obrigatórias. Apresente o resumo e espere aprovação explí
   - (Feature grande) cada ticket com ~200 a 400 linhas e cabendo num contexto novo, e as ondas de dependência listadas.
 
   Item ❌ se resolve antes do G1, não depois. Depois da pré-checagem: o que será construído, as seams de teste e os tickets ou passos. Termine com a pergunta de aprovação.
-- **G2 · Antes de publicar.** Antes de `git push`, abrir ou atualizar PR, merge na branch padrão, ou deploy. Mostre: tamanho do diff (linhas alteradas), resultado do `code-review` por severidade (só achados **blocking** seguram o G2), estado dos testes e typecheck, e o link do doc gerado pelo `as-built`. Junto, o **checklist de estabilidade** (curto, só o que se aplica):
+- **G2 · Antes de publicar.** Antes de `git push`, abrir ou atualizar PR, merge na branch padrão, ou deploy. Mostre: tamanho do diff (linhas alteradas), resultado do `code-review` por severidade (só achados **blocking** seguram o G2), estado dos testes e typecheck, e o link do doc gerado pelo `as-built`, se o usuário pediu os docs. Junto, o **checklist de estabilidade** (curto, só o que se aplica):
   - **Evidência de execução:** para mudança visível ao usuário (UI, API, CLI), a saída de ter rodado a aplicação: comando e resposta, health check, ou screenshot antes/depois para UI.
   - **Changelog:** entrada na seção `Unreleased` do `CHANGELOG.md`, se o repo tem um.
   - **Rollback (Feature e acima):** 3 linhas: como desfazer (revert, flag), se dados mudam de forma irreversível e em qual fase de expand/migrate/contract está a migração, e qual sinal indica que é hora de reverter.
   - **Feature flag nova:** ticket de remoção criado, com data.
   - **Observabilidade (serviço):** falhas novas logadas ou contadas, chamadas externas com timeout.
   - **UI:** controles com rótulo e usáveis por teclado, contraste ok; e o quanto o bundle cresceu, se o projeto mede.
-  - **Docs:** o que o `as-built` marcou como possível doc desatualizado.
+  - **Docs:** o que o `as-built` marcou como possível doc desatualizado; sem `as-built`, os docs existentes que a mudança deixou desatualizados.
   - **Força dos testes (Feature grande, Épico, lógica crítica):** resultado do `mutation-check` e, com lógica de domínio, do `property-tests`.
 
   O hook do Okeanos pede a confirmação do usuário em todo `git push`, `gh pr create/merge` e merge na branch padrão: essa confirmação é o G2, e você não tenta contorná-la. Nos agentes em que o hook não consegue perguntar, a ação é bloqueada e o usuário aprova rodando `okeanos aprovar push` no próprio terminal; você nunca roda esse comando. Para o corpo do PR use a skill `pr`.

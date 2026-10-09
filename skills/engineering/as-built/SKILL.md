@@ -1,9 +1,11 @@
 ---
 name: as-built
-description: Document what was actually built at the end of a flow - an arc42 architecture doc with C4 diagrams (context, container, component, dynamic, deployment) kept up to date, plus a per-feature doc. Use after code-review and before publishing, or when the user asks to document, diagram, or explain the architecture of implemented work.
+description: Document what was actually built at the end of a flow - an arc42 architecture doc with C4 diagrams (context, container, component, dynamic, deployment) kept up to date, plus a per-feature doc. Use when the user agreed to generate the docs after code-review, or when the user asks to document, diagram, or explain the architecture of implemented work.
 ---
 
 # As-built
+
+This skill is expensive in tokens, so it never runs on its own initiative: the flow offers it after `code-review` with a recommendation, and it runs only when the user says yes (or asks for it directly).
 
 Write the docs for what was **actually built**, from the code and the diff, not from the plan. The spec says what was intended; this says what exists. Two outputs, both Markdown with Mermaid (GitHub renders them), both committed with the code:
 

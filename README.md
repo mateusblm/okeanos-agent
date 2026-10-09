@@ -103,7 +103,7 @@ O trabalho é planejado em tickets de 200 a 400 linhas. Acima de `maxChangedLine
 
 ### Documentação que não acompanha o código
 
-Antes do G2, a skill [`as-built`](skills/engineering/as-built/SKILL.md) atualiza um documento de arquitetura arc42 com diagramas C4 e escreve um doc da feature a partir do que foi construído. Exemplo: [`examples/calc/docs/architecture.md`](examples/calc/docs/architecture.md).
+Antes do G2, o agente oferece a skill [`as-built`](skills/engineering/as-built/SKILL.md), que atualiza um documento de arquitetura arc42 com diagramas C4 e escreve um doc da feature a partir do que foi construído. Ela gasta bastante token, então só roda se você aceitar; o agente recomenda gerar quando a mudança altera a arquitetura e pular em ajustes internos. Exemplo: [`examples/calc/docs/architecture.md`](examples/calc/docs/architecture.md).
 
 ## Como funciona
 
@@ -112,9 +112,9 @@ O processo vive em [`core/process.md`](core/process.md), neutro em relação ao 
 | Rota | Quando | Fluxo |
 | :- | :- | :- |
 | Direto | Pergunta ou mudança trivial | Responde ou faz, verifica. Sem gates. |
-| Bug | Algo quebrado | `tdd` com teste de regressão (ou `diagnosing-bugs` se for difícil), `code-review`, `as-built` se mudou comportamento documentado, G2 |
-| Feature | Cabe numa sessão | `grill-with-docs`, G1, `implement`, `as-built`, G2 |
-| Feature grande | Várias sessões, caminho claro | `grill-with-docs`, `to-spec`, `to-tickets`, G1, execução na sessão ou AFK, `mutation-check`, `property-tests` se há lógica de domínio, `code-review`, `as-built`, G2 |
+| Bug | Algo quebrado | `tdd` com teste de regressão (ou `diagnosing-bugs` se for difícil), `code-review`, `as-built` se você quiser, G2 |
+| Feature | Cabe numa sessão | `grill-with-docs`, G1, `implement`, `as-built` se você quiser, G2 |
+| Feature grande | Várias sessões, caminho claro | `grill-with-docs`, `to-spec`, `to-tickets`, G1, execução na sessão ou AFK, `mutation-check`, `property-tests` se há lógica de domínio, `code-review`, `as-built` se você quiser, G2 |
 | Épico | Grande e nebuloso | `wayfinder` até o caminho clarear, depois segue como Feature grande |
 | Triagem | Issues ou pedidos de terceiros | `triage` |
 
@@ -122,7 +122,7 @@ Mudanças que tocam autenticação, entrada externa, dados persistidos, segredos
 
 **G1** fica antes de qualquer código de produção. Mostra a pré-checagem, o que será construído, as seams de teste e os tickets.
 
-**G2** fica antes de push, PR, merge na branch padrão ou deploy. Mostra o tamanho do diff, os achados do `code-review` por severidade, o estado de testes e typecheck, o link do doc do `as-built` e um checklist de estabilidade (evidência de execução, changelog, rollback, observabilidade, entre outros, conforme o caso).
+**G2** fica antes de push, PR, merge na branch padrão ou deploy. Mostra o tamanho do diff, os achados do `code-review` por severidade, o estado de testes e typecheck, o link do doc do `as-built` (quando você pediu os docs) e um checklist de estabilidade (evidência de execução, changelog, rollback, observabilidade, entre outros, conforme o caso).
 
 Você pode pular etapas ("pula a entrevista", "só faz"). Os gates continuam valendo, a menos que você os dispense para aquele pedido.
 
