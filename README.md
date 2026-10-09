@@ -115,31 +115,20 @@ Você pode pular etapas ("pula a entrevista", "só faz"). Os gates continuam val
 
 ## Aprovações
 
-Onde o agente consegue pedir confirmação (veja a tabela de suporte), o Okeanos pergunta. Onde não consegue, bloqueia e termina a mensagem com `Para aprovar: okeanos aprovar <alvo>`. Rode esse comando no seu terminal e peça ao agente para tentar de novo:
+Onde o agente consegue pedir confirmação, o Okeanos pergunta. Onde não consegue, bloqueia e diz o comando para liberar, que você roda no seu terminal:
 
 ```bash
-okeanos aprovar tests/test_calc.py   # um teste commitado (caminho relativo ao repo)
-okeanos aprovar push                 # git push, PR, merge na branch padrão
-okeanos aprovar pacote:expresss      # um pacote suspeito, mas existente
-okeanos aprovacoes                   # lista as ativas
-okeanos revogar [alvo]               # remove uma, ou todas sem alvo
+okeanos aprovar tests/test_calc.py   # mudar um teste já commitado
+okeanos aprovar push                 # push, PR ou merge na branch principal
 ```
 
-A aprovação vale 10 minutos, só para aquele alvo exato, e fica em `.git/okeanos/approvals.json`. Os hooks consultam as aprovações antes de perguntar ou bloquear.
+A aprovação vale 10 minutos e só para aquele alvo. Só você aprova: o comando exige o seu terminal, e o agente é barrado se tentar rodá-lo. Segredos, force push e pacote inexistente nunca são aprováveis.
 
-As aprovações são do humano. `aprovar` e `revogar` exigem um terminal interativo e recusam rodar num shell de agente (com `CLAUDECODE`, as variáveis `CODEX_*` que o Codex põe no shell das ferramentas ou `CURSOR_AGENT`). Os hooks negam ao agente:
-
-- rodar esses comandos, inclusive por um interpretador ou wrapper (`python -c`, `node -e`, `perl -e`, `sh -c`, `xargs`, heredoc), num pseudo-terminal (`pty.spawn`, `script`, `expect`, `unbuffer`, `tmux`, `socat ... pty`) ou com as variáveis de sessão de agente removidas (`env -u`, `env -i`, `unset`);
-- escrever no estado do Okeanos, em `.git/okeanos/` ou no reserva em `<TMPDIR>/okeanos/`;
-- remover ou contornar os git hooks (`okeanos githooks --uninstall`, escrita em `.git/hooks`, troca de `core.hooksPath`) e os hooks do projeto com entradas do Okeanos (`.codex/hooks.json`, `.cursor/hooks.json`, `.cursor/rules/okeanos.mdc`, `.github/hooks/`), além de `okeanos install --uninstall`.
-
-Segredos, force push, `--no-verify`, `rm -r` fora do repositório e pacote inexistente nunca são aprováveis.
-
-Quão forte é essa barreira depende do agente. No Claude Code e no Copilot CLI (fora da nuvem e sem `COPILOT_ALLOW_ALL`), a aprovação é a confirmação do próprio programa do agente: uma barreira real, fora do alcance do modelo. No Codex e no Cursor, quem aprova é o `okeanos aprovar`, e as checagens acima barram atalhos e reward hacking acidental. Um agente que roda como o mesmo usuário do sistema operacional poderia, em princípio, escrever um script novo para contorná-las. Nesse caso, o hook de fim de turno, os git hooks (`okeanos githooks`) e o CI continuam como barreiras seguintes.
+Detalhes e quão forte é essa barreira em cada agente: [docs/protecoes.md](docs/protecoes.md).
 
 ## Hooks
 
-Os hooks entram por [`hooks/run`](hooks/run) `--agent <agente> <hook>`, que chama [`hooks/okeanos.py`](hooks/okeanos.py). No Claude Code, estão em [`hooks/hooks.json`](hooks/hooks.json); nos outros, o instalador os escreve na configuração de usuário (no Codex sob o Orca, ou com `--project`, no `.codex/hooks.json` do projeto). Os nomes de evento variam por agente (tabela de suporte); o comportamento é o mesmo:
+Os hooks rodam em momentos fixos da sessão, em qualquer agente:
 
 | Momento | Comportamento |
 | :- | :- |
@@ -150,22 +139,7 @@ Os hooks entram por [`hooks/run`](hooks/run) `--agent <agente> <hook>`, que cham
 | Depois de uma edição | Roda os comandos `onEdit` no arquivo editado e devolve as falhas ao agente. |
 | Fim do turno | Roda os comandos `onDone`. Aponta testes apagados, asserções removidas, testes desligados e supressões novas de lint ou tipo. Avisa quando o diff passa de `maxChangedLines`. |
 
-Qualquer erro interno de um hook vira "permitir", nunca bloqueio. Cada bloqueio, pedido de aprovação e falha é registrado em `.git/okeanos/metrics.jsonl`, com o nome do agente. Quando a pasta do git é só leitura (a sandbox do Codex), o estado da sessão e as métricas vão para a reserva em `<TMPDIR>/okeanos/`; as aprovações ficam sempre em `.git/okeanos/`.
-
-### Git hooks
-
-`okeanos githooks`, rodado dentro de um repositório, instala dois git hooks que valem para qualquer agente e para quem commita à mão:
-
-| Hook | Comportamento |
-| :- | :- |
-| `pre-commit` | Falha se o stage tem segredo (mostra arquivo e tipo) ou arquivo `.env` novo. Falha se um teste já commitado perde ou muda asserções ou casos, ou ganha `skip`, sem aprovação ativa; a mensagem termina com `Para aprovar: okeanos aprovar <arquivo>`. Reformatar e adicionar testes passam. Supressões novas só geram aviso. |
-| `pre-push` | Roda os comandos `onDone` de `docs/agents/checks.json` e falha mostrando o comando e o fim da saída. Sem `checks.json`, avisa e deixa passar. |
-
-Os hooks vão para a pasta que o git usa (`core.hooksPath`, ou `.git/hooks` do repositório principal, também a partir de um worktree) e chamam `bin/okeanos` pelo caminho absoluto de quando foram instalados; se o Okeanos mudar de lugar, rode `okeanos githooks` de novo. Um hook que já existia vira `<nome>.okeanos-prev` e roda antes. `okeanos githooks --uninstall` remove só os hooks do Okeanos e devolve os anteriores. Sem `python3`, os hooks avisam e deixam passar. `git commit --no-verify` pula os hooks: é uma escolha do humano, já que os hooks do agente negam `--no-verify`.
-
-### CI
-
-Em repositórios com remote no GitHub, o `setup-okeanos` oferece um workflow (`.github/workflows/okeanos-checks.yml`) que roda os comandos `onDone`, um scan de segredos com gitleaks e Semgrep no código alterado. Tornar esses jobs obrigatórios na branch protection fica com você.
+Para valer também fora dos agentes, por exemplo em commits feitos à mão, `okeanos githooks` instala git hooks com as mesmas checagens, e no GitHub o `setup-okeanos` oferece um workflow de CI. Detalhes: [docs/protecoes.md](docs/protecoes.md).
 
 ## Configuração
 
@@ -257,14 +231,8 @@ Cada etapa do processo é uma suposição sobre o que o modelo ainda não faz be
 
 ## Limitações
 
-- Copilot e Cursor não tiveram nenhuma sessão real com o Okeanos: os dialetos foram testados com payloads montados a partir da documentação. Partes do formato são inferidas:
-  - Copilot: os argumentos das ferramentas de edição (`edit`, `create`, `str_replace_editor`) não estão documentados, então o dialeto aceita as duas grafias; o `agentStop` não traz a última mensagem, e o dialeto a procura no transcript, cujo formato não é documentado.
-  - Cursor: o `tool_input` das ferramentas de arquivo (`StrReplace`, `path` ou `file_path`, `content`) vem de relatos, não da documentação; o que o dialeto não consegue ler conta como reescrita do arquivo inteiro. A variável `CURSOR_AGENT`, usada para recusar `okeanos aprovar` no shell do agente, também não é documentada.
-- O Copilot não põe no shell das ferramentas uma variável que identifique a sessão; ali, a recusa de `okeanos aprovar` depende só da exigência de terminal interativo e do bloqueio pelos hooks.
-- No Cursor, os hooks do Cursor CLI ficam de fora; o alvo é o agente do Cursor IDE.
-- Os hooks precisam de `python3`. Sem ele, o processo continua e os hooks ficam desligados.
-- O modo AFK precisa de Node e Docker.
-- A checagem de pacotes precisa de rede. Offline, ela não bloqueia.
+- Copilot e Cursor ainda não rodaram numa sessão real com o Okeanos; parte do formato dos dados foi tirada da documentação. Detalhes em [docs/agentes.md](docs/agentes.md#limitações-por-agente).
+- Os hooks precisam de `python3`; o modo AFK precisa de Node e Docker; a checagem de pacotes precisa de rede.
 - Gemini CLI e opencode não são suportados.
 - As paradas para aprovação atrapalham exploração rápida. Nesses casos, use "sem okeanos".
 
