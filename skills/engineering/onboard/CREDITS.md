@@ -1,0 +1,3 @@
+# Credits
+
+Step 4 (**Propose `docs/agents/verificar.md`**) is adapted from [Lauren Tan](https://github.com/poteto)'s [`create-verification-skill`](https://github.com/cursor/plugins/tree/main/pstack/skills/create-verification-skill) (MIT, Copyright (c) 2026 Lauren Tan): the questions about the app's surface, how it starts and how to drive it, the Launch/Doctor/Drive/Evidence/Cleanup structure (here Subir, Checar, Exercitar, Evidência, Limpar) and the proof standards (real user path, action plus resulting state, side effects, kill only what you started, cleanup keeps the evidence). The adaptation writes a single project document for the user to approve instead of generating a project-local skill with a feature map, and doesn't run the app during onboarding.
