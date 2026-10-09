@@ -56,6 +56,10 @@ A starting situation that generates work, then merges onto the main flow.
 
   When the map clears, **it hands off, it doesn't build**: merge onto the main flow at **`/to-spec`**, which collapses the map's linked decisions into a buildable plan, then `/to-tickets` and `/implement` as usual. Looping the map straight into `/implement` skips that collapse and throws the linked detail away, so go straight to `/implement` only when the effort turned out genuinely small.
 
+## Performance
+
+- **`/performance`**: something is slow, a performance regression or budget is at stake, or you want an optimisation. Baseline with one repeatable command, change one thing at a time, keep only gains above the noise (neutral is a revert), log every attempt, and never quote a number that wasn't measured. `/diagnosing-bugs` hands its perf branch here.
+
 ## Codebase health
 
 Not feature work, just upkeep.

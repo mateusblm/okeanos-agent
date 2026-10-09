@@ -26,6 +26,7 @@
     "./skills/engineering/improve-codebase-architecture",
     "./skills/engineering/mutation-check",
     "./skills/engineering/onboard",
+    "./skills/engineering/performance",
     "./skills/engineering/pr",
     "./skills/engineering/property-tests",
     "./skills/engineering/prototype",
