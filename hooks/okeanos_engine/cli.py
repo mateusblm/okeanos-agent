@@ -11,7 +11,7 @@ import time
 from . import approvals, rules
 from .dialects import DEFAULT, DIALECTS
 from .model import ASK, BLOCK, DENY, Decision
-from .plumbing import Context, metrics_path, repo_root
+from .plumbing import Context, metrics_files, repo_root
 
 
 def split_agent(argv):
@@ -82,25 +82,26 @@ def handle(dialect, hook, data):
 def metrics_summary(days, by_agent=False, now=None):
     """Print event counts per kind (and per agent) for the current repo (used by retro and harness pruning)."""
     root = repo_root(os.getcwd())
-    path = metrics_path(root) if root else None
-    if not path or not os.path.exists(path):
+    paths = metrics_files(root) if root else []
+    if not paths:
         print("Sem métricas do Okeanos neste repositório ainda.")
         return
     since = (time.time() if now is None else now) - days * 86400
     counts, agents, sessions = {}, {}, set()
-    with open(path) as f:
-        for line in f:
-            try:
-                e = json.loads(line)
-            except Exception:  # noqa: BLE001
-                continue
-            if e.get("ts", 0) < since:
-                continue
-            counts[e.get("kind", "?")] = counts.get(e.get("kind", "?"), 0) + 1
-            agent = e.get("agent") or "?"
-            agents[agent] = agents.get(agent, 0) + 1
-            sessions.add(e.get("session"))
-    print(f"Okeanos, últimos {days} dias, {len(sessions)} sessões ({path}):")
+    for path in paths:
+        with open(path) as f:
+            for line in f:
+                try:
+                    e = json.loads(line)
+                except Exception:  # noqa: BLE001
+                    continue
+                if e.get("ts", 0) < since:
+                    continue
+                counts[e.get("kind", "?")] = counts.get(e.get("kind", "?"), 0) + 1
+                agent = e.get("agent") or "?"
+                agents[agent] = agents.get(agent, 0) + 1
+                sessions.add(e.get("session"))
+    print(f"Okeanos, últimos {days} dias, {len(sessions)} sessões ({', '.join(paths)}):")
     for kind, n in sorted(counts.items(), key=lambda kv: -kv[1]):
         print(f"  {n:5d}  {kind}")
     if by_agent and agents:
