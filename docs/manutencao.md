@@ -4,10 +4,10 @@ Cada etapa do Okeanos codifica uma suposição sobre o que o modelo não faz bem
 
 ## Medir
 
-Os hooks registram cada evento em `.git/okeanos/metrics.jsonl` de cada repositório. Para ver o resumo de um repo:
+Os hooks registram cada evento, com o nome do agente, em `.git/okeanos/metrics.jsonl` de cada repositório (ou na reserva em `<TMPDIR>/okeanos/` quando a pasta do git é só leitura, como na sandbox do Codex). Para ver o resumo de um repo, por tipo e por agente, somando os dois lugares:
 
 ```bash
-cd <projeto> && <caminho-do-okeanos-agent>/hooks/run metrics 30   # últimos 30 dias
+cd <projeto> && okeanos metrics 30   # últimos 30 dias (ou <caminho-do-okeanos-agent>/hooks/run metrics 30)
 ```
 
 Sinais que valem olhar:
