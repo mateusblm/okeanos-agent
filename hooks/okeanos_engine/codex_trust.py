@@ -17,6 +17,7 @@ import tempfile
 import time
 
 from . import installer
+from .plumbing import git_common_dir, repo_root
 
 TIMEOUT = 20
 NEEDS_REVIEW = ("untrusted", "modified")
@@ -218,12 +219,89 @@ def orca_note(scope, home):
     return None
 
 
-def trust(scope, root, home, out):
-    """Trust the Okeanos hooks that need review, then check with Codex. True when all of them are trusted."""
+# ---------------------------------------------------------------------------
+# folder trust: Codex loads a project's .codex/ (hooks included) only for trusted folders
+# ---------------------------------------------------------------------------
+
+def folder_key(repo):
+    """(key, None) or (None, why not). Codex keys folder trust by `project_trust_key` (the canonicalized path,
+    codex-rs config/src/loader/mod.rs) of `resolve_root_git_project_for_trust` (codex-rs git-utils/src/trust.rs):
+    the checkout whose .git is a directory, or, for a linked worktree, its main checkout. We only trust the
+    current project's own repository root, so a linked worktree (trust would land on the main checkout) is refused."""
+    real = os.path.realpath(repo)
+    top = repo_root(repo)
+    if not top or os.path.realpath(top) != real:
+        return None, f"{repo} não é a raiz de um repositório git; não marco a pasta como confiável"
+    if not os.path.isdir(os.path.join(real, ".git")):
+        common = git_common_dir(real)
+        main = os.path.realpath(os.path.dirname(common)) if common else "?"
+        return None, (f"o Codex guarda a confiança deste worktree na pasta principal ({main}), que não é a raiz "
+                      f"deste projeto ({real}); não marco essa pasta como confiável")
+    return real, None
+
+
+def folder_edit(key):
+    """The TUI's own edit (codex-rs tui/src/config_update.rs, trusted_project_edit)."""
+    escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+    return {"keyPath": f'projects."{escaped}".trust_level', "value": "trusted", "mergeStrategy": "replace"}
+
+
+def folder_trusted(server, scope, key):
+    """The effective config or the user layer has projects.<key>.trust_level = "trusted"."""
+    result = server.request("config/read", {"includeLayers": True, "cwd": scope.cwd})
+    configs = [result.get("config")] + [l.get("config") for l in result.get("layers") or [] if isinstance(l, dict)
+                                        and isinstance(l.get("name"), dict) and l["name"].get("type") == "user"]
+    for config in configs:
+        projects = config.get("projects") if isinstance(config, dict) else None
+        entry = projects.get(key) if isinstance(projects, dict) else None
+        if isinstance(entry, dict) and entry.get("trust_level") == "trusted":
+            return True
+    return False
+
+
+def folder_question(key):
+    return (f"O Codex só carrega hooks de projetos confiáveis, e esta pasta ({key}) ainda não é. Marcar a pasta "
+            "como confiável no Codex? Isso também faz o Codex carregar o resto da configuração em .codex/ deste "
+            "repositório. [s/N] ")
+
+
+def folder_later_note(scope):
+    return (f"Para fazer depois: abra o Codex nesta pasta ({scope.cwd}) e aceite \"Trust this folder\"; "
+            f"depois rode {scope.later()}.")
+
+
+def trust_folder(server, scope, commands, confirm, out):
+    """No Okeanos project hooks listed: if the folder is untrusted, ask, trust it and list again.
+    Returns the listed hooks, or None when the human declined."""
+    missing = TrustError(f"o Codex não lista hooks do Okeanos em {', '.join(scope.files)}")
+    key, why = folder_key(scope.cwd)
+    if why:
+        raise TrustError(why)
+    if folder_trusted(server, scope, key):
+        raise missing
+    if not confirm(folder_question(key)):
+        out("codex: nada foi confiado; a pasta continua não confiável no Codex.")
+        out(folder_later_note(scope))
+        return None
+    server.request("config/batchWrite", {"edits": [folder_edit(key)], "reloadUserConfig": True})
+    out(f"codex: pasta marcada como confiável no Codex: {key}")
+    ours = list_ours(server, scope, commands)
+    if not ours:
+        raise missing
+    return ours
+
+
+def trust(scope, root, home, out, confirm=lambda question: True):
+    """Trust the Okeanos hooks that need review, then check with Codex. True when all of them are trusted,
+    None when the human declined trusting the folder (--project in a folder Codex doesn't trust yet)."""
     commands = okeanos_commands(root)
     try:
         with AppServer(scope.cwd, home, root) as server:
             ours = list_ours(server, scope, commands)
+            if not ours and scope.project:
+                ours = trust_folder(server, scope, commands, confirm, out)
+                if ours is None:
+                    return None
             if not ours:
                 raise TrustError(f"o Codex não lista hooks do Okeanos em {', '.join(scope.files)}")
             pending = [h for h in ours if h.get("trustStatus") in NEEDS_REVIEW]
@@ -259,17 +337,23 @@ def offer(scope, root, home, refusal, ask, out=print, ask_fn=input):
         out(f"codex: hooks do Okeanos não confiados agora ({refusal}).")
         out(later_note(scope))
         return 1
-    describe_hooks(root, scope, out)
-    if ask:
+    def confirm(question):  # --sim (ask=False) answers yes to every question
+        if not ask:
+            return True
         try:
-            answer = ask_fn("Autorizar esses hooks no Codex agora? [s/N] ")
+            answer = ask_fn(question)
         except EOFError:
             answer = ""
-        if answer.strip().lower() not in ("s", "sim", "y", "yes"):
-            out("codex: nada foi confiado.")
-            out(later_note(scope))
-            return 0
-    ok = trust(scope, root, home, out)
+        return answer.strip().lower() in ("s", "sim", "y", "yes")
+
+    describe_hooks(root, scope, out)
+    if not confirm("Autorizar esses hooks no Codex agora? [s/N] "):
+        out("codex: nada foi confiado.")
+        out(later_note(scope))
+        return 0
+    ok = trust(scope, root, home, out, confirm)
+    if ok is None:
+        return 0
     note = orca_note(scope, home)
     if note:
         out(note)

@@ -196,6 +196,8 @@ def cmd_install(args):
                 print(f"codex: {removed} entrada(s) de confiança do Okeanos removida(s) de hooks.state.")
         except codex_trust.TrustError as e:
             print(f"codex: aviso, as entradas de confiança do Okeanos em hooks.state ficaram ({e}).")
+    if scope and args.uninstall and scope.project:
+        print("codex: se esta pasta está marcada como confiável no Codex, ela continua (pode ser anterior ao Okeanos).")
     elif scope and not args.uninstall and codex_trust.installed(scope, home):
         codex_trust.offer(scope, root, home, consent_refusal(), ask=True)
     return code
