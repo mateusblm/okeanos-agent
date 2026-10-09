@@ -163,6 +163,8 @@ Cada comando aceita `timeout` em segundos.
 
 Em projetos com algo para rodar (servidor, CLI, UI, worker), o `onboard` também propõe `docs/agents/verificar.md`: como subir, checar, exercitar o caminho principal, que evidência guardar e como limpar. O `implement` segue esse roteiro para produzir a evidência de execução do G2.
 
+A `retro` mantém `docs/agents/regras.md`: cada regra do projeto e o que a aplica (hook, check, lint, tipo, teste ou nada). Ela propõe o arquivo na primeira vez, para você aprovar, e trata como achado uma regra sem aplicação que voltou a ser violada.
+
 ### Linguagens
 
 O processo não depende de linguagem. Os hooks reconhecem testes, `skip` e supressões de lint em JS/TS, Python, Go, Java, Kotlin, Scala, C#, Swift, Ruby, PHP, Elixir, Dart e Rust. A checagem de pacotes cobre npm, PyPI, crates.io, RubyGems, Packagist, NuGet e módulos Go. Testes inline em código-fonte (módulos `#[cfg(test)]` do Rust) não são reconhecidos como arquivos de teste.
